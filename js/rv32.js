@@ -227,6 +227,32 @@ export function refStep(s, read) {
 // With `upto`, stop with the circuit settled on instruction number `upto`, not
 // yet clocked, so the sheet can show that instruction flowing through.
 export function runProgram(stage, circuit, upto = Infinity) {
+  const m = startProgram(stage, circuit);
+  const names = labelNames(stage.prog || []);
+  const rows = [];
+  for (let step = 0; step < 300; step++) {
+    if (m.done() || step === upto) break;
+    const { pc, inst, why } = m.step();
+    rows.push({ pc, inst, text: disasm(inst, (d) => names.get(u(pc + d))), ok: !why, why, out: m.uart });
+  }
+  return { rows, uart: m.uart, uartExpected: m.uartExpected, mem: m.mem, inputs: m.inputs };
+}
+
+// Apply a reference write to `ram`. A write to the UART changes no memory; it
+// returns the character it prints, if it covers byte 0.
+function apply(ram, w) {
+  if (w.addr === UART) return w.mask & 1 ? serialChar(w.data & 255) : '';
+  const k = u(w.addr & ~3);
+  const bits = lanes(w.mask);
+  ram.set(k, u(((ram.get(k) || 0) & ~bits) | (w.data & bits)));
+  return '';
+}
+
+// The drawn CPU powered on and reset at the start of `stage.words`, next to the
+// reference. `step()` runs one instruction on both and returns { pc, inst, why },
+// `why` empty when they agree; `done()` says the reference has reached the end
+// or the halt loop. `uart`, `uartExpected`, `mem` and `inputs` are live.
+export function startProgram(stage, circuit) {
   const ram = new Map(stage.words.map((w, k) => [u(RAM_BASE + 4 * k), w]));
   const read = (addr) => ram.get(u(addr & ~3)) || 0;
   const end = u(RAM_BASE + 4 * stage.words.length);
@@ -235,7 +261,6 @@ export function runProgram(stage, circuit, upto = Infinity) {
   const mem = newMem();
   const inputs = { 'in:inst': 0, 'in:rdata': 0, 'in:reset': 1, 'in:clk': 0 };
   const regfiles = circuit.nodes.filter((n) => n.type === 'regfile');
-  const names = labelNames(stage.prog || []);
   let r;
   const out = (name) => r.outs['out:' + name];
   // The memory answers combinationally, so feed it back until nothing changes.
@@ -260,28 +285,18 @@ export function runProgram(stage, circuit, upto = Infinity) {
   inputs['in:reset'] = 0;
   settle();
 
-  const rows = [];
-  let uart = '';
-  let uartExpected = '';
-  for (let step = 0; step < 300; step++) {
+  const m = { uart: '', uartExpected: '', mem, inputs, ref };
+  m.done = () => ref.pc === end || read(ref.pc) === HALT;
+  m.step = () => {
     const pc = ref.pc;
     const inst = read(pc);
-    if (pc === end || inst === HALT || step === upto) break;
     const got = { pc: out('pc'), memw: out('memw'), addr: out('addr'), wdata: out('wdata'), stable: r.stable };
     const gmask = got.memw ? (hasMask && out('wmask')) || 15 : 0;
     // Judge the drawn CPU by what it drives, not by what the reference does.
-    if (got.memw && got.addr === UART && gmask & 1) uart += serialChar(got.wdata & 255);
+    if (got.memw && got.addr === UART && gmask & 1) m.uart += serialChar(got.wdata & 255);
     const write = refStep(ref, read);
     clock();
-    if (write) {
-      if (write.addr === UART) {
-        if (write.mask & 1) uartExpected += serialChar(write.data & 255);
-      } else {
-        const k = u(write.addr & ~3);
-        const bits = lanes(write.mask);
-        ram.set(k, u((read(k) & ~bits) | (write.data & bits)));
-      }
-    }
+    if (write) m.uartExpected += apply(ram, write);
     settle();
 
     let why = '';
@@ -297,7 +312,25 @@ export function runProgram(stage, circuit, upto = Infinity) {
     else if (regfiles.length !== 1) why = 'THE SHEET NEEDS EXACTLY ONE REGFILE';
     else if (reg >= 0) why = `X${reg} = ${hex(x[reg] || 0)}, WANT ${hex(ref.x[reg])}`;
     else if (out('pc') !== ref.pc) why = `NEXT PC = ${hex(out('pc'))}, WANT ${hex(ref.pc)}`;
-    rows.push({ pc, inst, text: disasm(inst, (d) => names.get(u(pc + d))), ok: !why, why, out: uart });
+    return { pc, inst, why };
+  };
+  return m;
+}
+
+// Run the reference alone to the end: instruction count, serial output and the
+// set of addresses it reaches. Cheap; used for a long demo's progress and listing.
+export function refRun(words, limit = 1e6) {
+  const ram = new Map(words.map((w, k) => [u(RAM_BASE + 4 * k), w]));
+  const read = (addr) => ram.get(u(addr & ~3)) || 0;
+  const end = u(RAM_BASE + 4 * words.length);
+  const s = { pc: RAM_BASE, x: Array(32).fill(0) };
+  const reached = new Set();
+  let uart = '';
+  let steps = 0;
+  for (; steps < limit && s.pc !== end && read(s.pc) !== HALT; steps++) {
+    reached.add(s.pc);
+    const w = refStep(s, read);
+    if (w) uart += apply(ram, w);
   }
-  return { rows, uart, uartExpected, mem, inputs };
+  return { steps, uart, reached };
 }

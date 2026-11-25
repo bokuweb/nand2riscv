@@ -5,7 +5,7 @@ import { WORLDS, STAGES, PLANNED_COUNT, BADGES, partsFor } from './levels.js';
 import { state, save, resetAll, rankOf } from './store.js';
 import { sfx } from './fx.js';
 import { Editor, hex } from './editor.js';
-import { runProgram, listing } from './rv32.js';
+import { runProgram, startProgram, refRun, assemble, listing } from './rv32.js';
 import { setLang, trHtml, trText } from './i18n.js';
 import { initPanes, applyPanes, labelPanes } from './panes.js';
 
@@ -82,6 +82,11 @@ const langLabel = () => (state.lang === 'ja' ? 'LANG JA' : 'LANG EN');
 
 let session = null;
 let timerId = null;
+// The demo run in progress (RUN FIZZBUZZ), or null. Module-level so leaving the
+// stage can always reach its timer.
+let demo = null;
+// Set while the demo puts its own state on the sheet, so that redraw is not taken for an edit.
+let demoShowing = false;
 setLang(state.lang);
 const editor = new Editor($('#board'), { onChange: onCircuitChange });
 editor.onStatus = (text) => ($('#status').textContent = text);
@@ -124,8 +129,13 @@ function ask(title, lines, ok = 'OK') {
 // ---------- drawing index ----------
 
 function showMap() {
+  stopDemo(false);
   stopTimer();
+  // Leaving cancels a VERIFY sweep in progress (see submit).
+  if (session) session.busy = false;
   session = null;
+  editor.locked = false;
+  $('#stage').classList.remove('busy');
   $('#stage').hidden = true;
   $('#modal').hidden = true;
   const el = $('#map');
@@ -232,6 +242,8 @@ function showMap() {
 // ---------- drawing sheet ----------
 
 function openStage(st) {
+  stopDemo(false);
+  if (session) session.busy = false;
   $('#map').hidden = true;
   $('#modal').hidden = true;
   $('#stage').hidden = false;
@@ -240,6 +252,9 @@ function openStage(st) {
   const base = st.inherit && state.circuits[st.inherit];
   const saved = state.circuits[st.id] || (base && { nodes: base.nodes, wires: base.wires, ref: base.ref });
   session = { st, t: saved?.t || 0, hint: saved?.hint || 0, ref: !!saved?.ref, allOk: false, busy: false, verified: 0 };
+  // Which program the listing and console show: the stage's own ('prog') or the demo's.
+  session.view = 'prog';
+  session.demoRun = null;
 
   $('#st-num').textContent = st.num;
   $('#st-title').textContent = st.title;
@@ -279,8 +294,9 @@ function renderBrief() {
 }
 
 // EN / JA. Re-renders the prose in place: the sheet, the test state and a running
-// VERIFY are untouched.
+// VERIFY are untouched. A running demo stops: its panels are redrawn in the new language.
 function toggleLang() {
+  stopDemo();
   state.lang = setLang(state.lang === 'ja' ? 'en' : 'ja');
   save();
   if (!session) return showMap();
@@ -327,6 +343,9 @@ function stopTimer() {
 
 function onCircuitChange(structural) {
   if (!session) return;
+  // The demo redrawing the sheet is not an edit; anything else stops it.
+  if (demoShowing) return;
+  stopDemo();
   const { st } = session;
   const circuit = editor.circuit();
   const test = runTest(st, circuit);
@@ -361,8 +380,14 @@ function onCircuitChange(structural) {
     const bad = rows.find((r) => !r.ok);
     $('#progress').innerHTML += bad ? `<p class="why">STEP ${rows.indexOf(bad)}: ${whyText(bad.why)}</p>` : '';
   }
-  renderSerial(st, test, cur);
-  if (st.prog) renderListing(rows, cur);
+  session.pcs = rows.map((r) => r.pc);
+  session.ns = rows.map((r, i) => r.n ?? i);
+  if (session.view === 'demo') renderDemo();
+  else {
+    renderSerial(st, test, cur);
+    if (st.prog) renderListing(rows, cur);
+  }
+  renderDemoControls();
   if (session.busy) $('#table tr.cur')?.scrollIntoView({ block: 'nearest' });
   const submit = $('#submit');
   submit.disabled = !allOk || session.busy;
@@ -377,19 +402,26 @@ function onCircuitChange(structural) {
 // passes; with a row selected it is the output just before that instruction.
 function renderSerial(st, test, cur) {
   const box = $('#serial');
+  $('.check').classList.remove('demo-view');
+  $('#demo-status').hidden = true;
   box.hidden = !st.uart;
   if (!st.uart) return;
   const { rows } = test;
   const upto = session.busy ? session.verified : cur != null && cur >= 0 ? cur : null;
   const text = upto == null ? test.uart : (rows[Math.min(upto, rows.length) - 1]?.out ?? '');
   session.serial = test.uart;
+  showConsole(text);
+  $('#serial-status').textContent = `EXPECTED ${JSON.stringify(st.uart)}  ${test.uart === st.uart ? 'MATCH' : 'NO MATCH'}`;
+}
+
+// Console text with the caret after it, scrolled to the newest line.
+function showConsole(text) {
   const con = $('#console');
   const caret = document.createElement('span');
   caret.className = 'caret';
   con.textContent = text;
   con.append(caret);
   con.scrollTop = con.scrollHeight;
-  $('#serial-status').textContent = `EXPECTED ${JSON.stringify(st.uart)}  ${test.uart === st.uart ? 'MATCH' : 'NO MATCH'}`;
 }
 
 // The listing marks the instruction of the selected or swept trace row. It
@@ -397,13 +429,146 @@ function renderSerial(st, test, cur) {
 // survives edits to the sheet.
 // `executed`, if given, is the set of addresses to show as reached.
 function renderListing(rows, cur, executed) {
-  const box = $('#listing');
   const at = cur != null && cur >= 0 ? (rows[cur]?.pc ?? null) : null;
-  session.pcs = rows.map((r) => r.pc);
-  session.ns = rows.map((r, i) => r.n ?? i);
-  box.querySelector('table').innerHTML = listTable(session.lines, at, executed || new Set(session.pcs));
+  showListing(session.lines, at, executed || new Set(session.pcs));
+}
+
+function showListing(lines, at, executed) {
+  const box = $('#listing');
+  box.querySelector('table').innerHTML = listTable(lines, at, executed);
   if (at !== session.listAt) keepInView(box, box.querySelector('tr.cur'), theadH(box));
   session.listAt = at;
+}
+
+// ---------- demo run (RUN FIZZBUZZ) ----------
+// The passed CPU runs the stage's `demo` program on the circuit on the sheet, in
+// lockstep with the reference, in time slices so the page stays responsive. It
+// never touches the save. `session.demoRun` is what the panels show:
+// { state: 'run' | 'ok' | 'fail' | 'stop', n, total, pc, out, why, secs }.
+
+const DEMO_MS = 6000; // a run faster than this is paced to take about this long
+const SLICE_MS = 12; // simulation per time slice
+const SHEET_MS = 150; // the sheet is the slowest panel to redraw
+const demoCache = new WeakMap();
+// The demo program assembled, its listing, and the reference run (steps, output, lines reached).
+function demoOf(st) {
+  if (!demoCache.has(st)) {
+    const words = assemble(st.demo);
+    demoCache.set(st, { words, lines: listing(st.demo), ref: refRun(words) });
+  }
+  return demoCache.get(st);
+}
+
+function startDemo() {
+  const { st } = session;
+  if (!st.demo || !cleared(st) || session.busy || demo) return;
+  const info = demoOf(st);
+  const m = startProgram({ words: info.words, outs: st.outs }, editor.circuit());
+  session.view = 'demo';
+  session.listAt = undefined;
+  session.demoRun = { state: 'run', n: 0, total: info.ref.steps, pc: m.ref.pc, out: '', why: '', secs: 0 };
+  demo = { st, m, info, run: session.demoRun, t0: performance.now(), sheetAt: 0, timer: 0 };
+  sfx.toggle();
+  showDemoSheet(demo);
+  renderDemo();
+  renderDemoControls();
+  demo.timer = setTimeout(demoTick, 0);
+}
+
+function demoTick() {
+  const d = demo;
+  if (!d) return;
+  if (session?.st !== d.st) return endDemo('stop', '', false);
+  const { m, run } = d;
+  const now = performance.now();
+  // Never ahead of the share of the run that the time so far allows.
+  const due = Math.ceil((run.total * (now - d.t0)) / DEMO_MS);
+  while (run.n < due && !m.done() && performance.now() - now < SLICE_MS) {
+    const { pc, why } = m.step();
+    if (why) {
+      run.pc = pc;
+      return endDemo('fail', why);
+    }
+    run.n++;
+  }
+  run.pc = m.ref.pc;
+  run.out = m.uart;
+  if (m.done()) return m.uart === d.info.ref.uart ? endDemo('ok') : endDemo('fail', 'SERIAL OUTPUT DIFFERS');
+  if (now - d.sheetAt >= SHEET_MS) showDemoSheet(d);
+  renderDemo();
+  d.timer = setTimeout(demoTick, run.n < due ? 0 : 16);
+}
+
+// Finish the run in progress. `render` is false when the stage is being left.
+function endDemo(state, why = '', render = true) {
+  const d = demo;
+  clearTimeout(d.timer);
+  demo = null;
+  Object.assign(d.run, { state, why, out: d.m.uart, secs: (performance.now() - d.t0) / 1000 });
+  if (!render || session?.st !== d.st) return;
+  showDemoSheet(d);
+  renderDemo();
+  renderDemoControls();
+  if (state === 'ok') sfx.ready();
+  else if (state === 'fail') sfx.del();
+}
+
+function stopDemo(render = true) {
+  if (demo) endDemo('stop', '', render);
+}
+
+// The circuit as the demo left it: settled on the next instruction, not yet clocked.
+function showDemoSheet(d) {
+  d.sheetAt = performance.now();
+  demoShowing = true;
+  try {
+    editor.show(d.m.inputs, d.m.mem, null);
+  } finally {
+    demoShowing = false;
+  }
+}
+
+// Console, status and listing for the demo program.
+function renderDemo() {
+  if (session.view !== 'demo') return;
+  const info = demoOf(session.st);
+  const run = session.demoRun;
+  // The console takes the trace's room (css: .check.demo-view).
+  $('.check').classList.add('demo-view');
+  $('#serial').hidden = false;
+  showConsole(run?.out ?? '');
+  const line = run && info.lines.find((l) => l.addr === run.pc);
+  const match = !run || info.ref.uart.startsWith(run.out);
+  $('#serial-status').textContent =
+    (line ? `PC ${hex(run.pc, 32)}  ${line.text}\n` : '') + `EXPECTED FIZZBUZZ 1 TO 100  ${match ? 'MATCH' : 'NO MATCH'}`;
+  const n = run?.n ?? 0;
+  const total = info.ref.steps;
+  let foot = '';
+  if (!run) foot = `<p>${trHtml('ui.demo.idle', 'FIZZBUZZ FROM 1 TO 100 ON THE CIRCUIT ON THE SHEET, CHECKED AGAINST THE REFERENCE AFTER EVERY INSTRUCTION. NO POINTS, NO GRADE.')}</p>`;
+  else if (run.state === 'ok') foot = `<p>DEMO COMPLETE / ${num(n)} INSTRUCTIONS / ${run.secs.toFixed(1)} S</p>`;
+  else if (run.state === 'fail') foot = `<p class="why">STEP ${n} AT ${hex(run.pc, 32)}: ${whyText(run.why)}</p>`;
+  else if (run.state === 'stop') foot = `<p>${trHtml('ui.demo.stopped', `STOPPED AT STEP ${n}.`, { n })}</p>`;
+  const status = $('#demo-status');
+  status.hidden = false;
+  status.innerHTML = `${abar(n / total, 12)} ${num(n)} / ${num(total)} INSTRUCTIONS${foot}`;
+  showListing(info.lines, run ? run.pc : null, info.ref.reached);
+}
+
+// RUN FIZZBUZZ / STOP and the PROGRAM switch, on the stage that has a demo only.
+function renderDemoControls() {
+  const { st } = session;
+  const on = !!st.demo;
+  const btn = $('#demo');
+  btn.hidden = !on;
+  $('#prog-switch').hidden = !on;
+  $('#demo-note').hidden = !on || cleared(st);
+  if (!on) return;
+  btn.disabled = session.busy || !cleared(st);
+  btn.textContent = demo ? 'STOP' : 'RUN FIZZBUZZ';
+  $('#demo-note').innerHTML = trHtml('ui.demo.locked', 'PASS VERIFY FIRST: THE DEMO RUNS ON A CPU THAT HAS PASSED.');
+  $('#prog-switch')
+    .querySelectorAll('[data-view]')
+    .forEach((b) => b.classList.toggle('on', b.dataset.view === session.view));
 }
 
 // Put the sheet in the state of test row i.
@@ -418,21 +583,30 @@ function gotoRow(i) {
   else editor.setInputs(rows[i].ins);
 }
 
+// The sweep belongs to the session it started in. Leaving the sheet (INDEX, or
+// another stage opened by any route) replaces that session, and the sweep then
+// just stops: showMap / openStage have already unlocked the sheet.
 async function submit() {
   if (!session || session.busy) return;
   if (!session.allOk) return;
-  session.busy = true;
+  const s = session;
+  stopDemo();
+  s.view = 'prog';
+  s.busy = true;
   editor.locked = true;
   $('#stage').classList.add('busy');
-  const rows = runTest(session.st, editor.circuit()).rows;
+  const rows = runTest(s.st, editor.circuit()).rows;
+  const pause = s.st.uart ? 170 : rows.length > 20 ? 40 : rows.length > 8 ? 80 : 160;
   for (let i = 0; i < rows.length; i++) {
-    session.verified = i + 1;
+    s.verified = i + 1;
     gotoRow(i);
     sfx.row();
     // A printing program sweeps slowly enough to read the console fill up.
-    await sleep(session.st.uart ? 170 : rows.length > 20 ? 40 : rows.length > 8 ? 80 : 160);
+    await sleep(pause);
+    if (session !== s) return;
   }
   await sleep(200);
+  if (session !== s) return;
   finish();
 }
 
@@ -540,6 +714,15 @@ $('#back').onclick = () => {
   showMap();
 };
 $('#submit').onclick = submit;
+$('#demo').onclick = () => (demo ? stopDemo() : startDemo());
+$('#prog-switch').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-view]');
+  if (!btn || !session || session.busy || btn.dataset.view === session.view) return;
+  stopDemo();
+  session.view = btn.dataset.view;
+  session.listAt = undefined;
+  onCircuitChange(false);
+});
 $('#st-lang').onclick = toggleLang;
 // One button step is a clear jump; the wheel is for fine control.
 $('#tool-zoom-out').onclick = () => {
@@ -564,16 +747,20 @@ $('#tool-clear').onclick = () => {
 };
 $('#answer').onclick = async () => {
   if (!session || session.busy) return;
+  const s = session;
   const lines = trLines('answer', ['THE CURRENT SHEET WILL BE REPLACED.', 'GRADE IS CAPPED AT C UNTIL THE SHEET IS CLEARED.']);
   if (!(await ask('LOAD REFERENCE SOLUTION', lines, 'LOAD'))) return;
-  if (!session || session.busy) return;
-  session.ref = true;
-  editor.loadSolution(session.st.solution);
+  // Only onto the sheet that was asked about.
+  if (session !== s || s.busy) return;
+  s.ref = true;
+  editor.loadSolution(s.st.solution);
 };
 
 $('#table').addEventListener('click', (e) => {
   const tr = e.target.closest('[data-row]');
   if (!tr || session.busy) return;
+  // A trace row belongs to the stage's program: show that one again.
+  session.view = 'prog';
   gotoRow(+tr.dataset.row);
   sfx.toggle();
 });
@@ -581,7 +768,7 @@ $('#table').addEventListener('click', (e) => {
 // A listing line selects the first trace step that runs it.
 $('#listing').addEventListener('click', (e) => {
   const tr = e.target.closest('[data-addr]');
-  if (!tr || !session || session.busy) return;
+  if (!tr || !session || session.busy || session.view !== 'prog') return;
   const i = session.pcs.indexOf(+tr.dataset.addr);
   if (i < 0) return;
   gotoRow(session.ns[i]);

@@ -567,6 +567,13 @@ summary {
   font-weight: 700;
   letter-spacing: 0.3em;
 }
+#demo {
+  padding: 8px;
+  letter-spacing: 0.3em;
+}
+#demo-note {
+  margin-top: -4px;
+}
 #answer {
   display: block;
   margin-top: 6px;
@@ -648,6 +655,49 @@ summary {
 }
 .listing-box h3 {
   margin: 0 0 6px;
+}
+/* PROGRAM: the stage's own or the demo's (last drawing only). */
+.listing-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+.prog-switch {
+  display: flex;
+}
+.prog-switch button {
+  margin-left: -1px;
+  padding: 2px 8px;
+  font-size: 9px;
+}
+.prog-switch button.on {
+  background: var(--fg);
+  color: var(--bg);
+}
+.prog-switch small {
+  align-self: center;
+  margin-right: 8px;
+}
+/* Demo view: the test program's trace means nothing here, so the console takes its
+   room and the listing keeps a quarter of the panel. VERIFY and RUN stay at the foot. */
+.check.demo-view > #test-title,
+.check.demo-view > .table-wrap {
+  display: none;
+}
+.check.demo-view > .listing-box {
+  max-height: 25%;
+}
+.check.demo-view > .serial {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.check.demo-view .console {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: calc(12 * 1.4em + 18px);
 }
 .listing {
   min-height: 0;
@@ -852,5 +902,10 @@ small [lang='ja'],
   .check {
     border-left: 0;
     border-top: 1px solid var(--fg);
+  }
+  /* The panel has no fixed height here, so the demo console gets one of its own. */
+  .check.demo-view .console {
+    flex: none;
+    height: calc(20 * 1.4em + 18px);
   }
 }

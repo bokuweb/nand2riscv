@@ -9,7 +9,8 @@
 // end with a '; comment' string, shown in the listing), and `inherit`
 // names the stage whose saved sheet a CPU drawing starts from.
 // and `vec` lists the test vectors of a bus stage in place of a full truth table. `zoom` enlarges the sheet
-// for drawings with many parts.
+// for drawings with many parts. `demo` is a longer program a passed CPU drawing can run for show
+// (RUN FIZZBUZZ on the stage screen); it scores nothing and never changes the save.
 // `solution` is a reference netlist at the grade A NAND count (see SOLUTIONS).
 // A section is { name, stages }, { name, planned: [titles] } when not issued yet, or both: issued
 // stages followed by planned rows. An optional `goal` ('GOAL 2') is shown after the section name in
@@ -17,6 +18,7 @@
 
 import { PARTS, aluFn, loadFn, storeFn, immI, immS, immB, immU, immJ } from './sim.js';
 import { assemble } from './rv32.js';
+import { FIZZBUZZ } from './fizzbuzz.js';
 
 // One instruction of each format, for the immediate generator's test vectors.
 const IMMW = assemble(['top', ['bne', 1, 2, 'top'], ['addi', 1, 2, -5], ['sw', 3, 4, -36], ['beq', 1, 2, 'far'], ['lui', 5, 0xabcde], ['jal', 1, 'far'], ['jal', 0, 'top'], 'far']);
@@ -818,7 +820,7 @@ export const WORLDS = [
         title: 'CPU / RV32I',
         ...CPU8_IO,
         inherit: 'hello',
-        goal: 'Add LB LH LBU LHU SB SH. Loads go through LOADUNIT. Stores drive wdata and wmask from STOREUNIT; memw still says when to write. The program tries every load and store width on both signs and on every byte lane, then turns a string in memory to upper case one byte at a time and prints it: HELLO RV32I.',
+        goal: 'Add LB LH LBU LHU SB SH. Loads go through LOADUNIT. Stores drive wdata and wmask from STOREUNIT; memw still says when to write. The program tries every load and store width on both signs and on every byte lane, then turns a string in memory to upper case one byte at a time and prints it: HELLO RV32I. Once it passes, RUN FIZZBUZZ runs a longer program on the same circuit at full speed: FizzBuzz from 1 to 100.',
         story:
           'GOAL 2, the last drawing. C strings are bytes, and a CPU that can only move whole words cannot store one character without destroying its neighbours. The new output wmask selects the bytes a store writes, bit 0 for the lowest. 0000 with memw set writes the whole word, as every sheet before this one does, so your HELLO sheet is carried over and still runs its word stores. addr keeps its low two bits: the units use them, memory ignores them. With byte and half-word access your processor runs the whole RV32I base instruction set, the one every RISC-V processor implements: only ECALL, EBREAK and FENCE are left out, and on this machine they would have nothing to do. From one NAND gate to a 32-bit processor that runs real programs: this is where the course ends.',
         prog: [
@@ -867,6 +869,8 @@ export const WORLDS = [
           ['jal', 0, 'done', '; stop'],
         ],
         uart: 'HELLO RV32I\n',
+        // Once passed, RUN FIZZBUZZ runs this longer program on the sheet; it scores nothing.
+        demo: FIZZBUZZ,
         reward: null,
         hints: [
           'LOADUNIT takes rdata, the ALU result as address, and FUNCT3. Its output replaces rdata in the write-back MUX32.',

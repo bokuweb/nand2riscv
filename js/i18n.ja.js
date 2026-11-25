@@ -283,7 +283,7 @@ export const JA = {
       ],
     },
     cpu5: {
-      goal: 'LB LH LBU LHU SB SH を追加する。ロードは LOADUNIT を通す。ストアは STOREUNIT で wdata と wmask を駆動し、書き込むかどうかは引き続き memw が示す。プログラムはロードとストアをすべての幅、両方の符号、すべてのバイトレーンで試し、メモリ上の文字列を 1 バイトずつ大文字に変えて出力する: HELLO RV32I。',
+      goal: 'LB LH LBU LHU SB SH を追加する。ロードは LOADUNIT を通す。ストアは STOREUNIT で wdata と wmask を駆動し、書き込むかどうかは引き続き memw が示す。プログラムはロードとストアをすべての幅、両方の符号、すべてのバイトレーンで試し、メモリ上の文字列を 1 バイトずつ大文字に変えて出力する: HELLO RV32I。合格すると RUN FIZZBUZZ で、同じ回路がもっと長いプログラム (1 から 100 までの FizzBuzz) を全速で実行する。',
       story:
         'GOAL 2、最後の図面。C の文字列はバイト列で、ワード単位でしか動かせない CPU では、隣の文字を壊さずに 1 文字をストアできない。新しい出力 wmask はストアが書き込むバイトを選び、ビット 0 が最下位。memw がセットされて 0000 ならワード全体を書く。これまでの図面はどれもそうしているので、HELLO の図面を引き継いでもワードストアはそのまま動く。addr は下位 2 ビットを残す: ユニットはそれを使い、メモリは無視する。バイトとハーフワードのアクセスがそろえば、あなたのプロセッサは RV32I の基本命令セット全体を実行する。どの RISC-V プロセッサも実装する命令セットだ: 外したのは ECALL、EBREAK、FENCE だけで、このマシンではどれもすることがない。1 個の NAND ゲートから、本物のプログラムを実行する 32 ビットプロセッサへ: コースはここで終わる。',
       hints: [
@@ -345,6 +345,13 @@ export const JA = {
       'MEMORY WRITE MISSING': 'メモリへの書き込みがない。',
       'UNEXPECTED MEMORY WRITE': '想定外のメモリ書き込みがある。',
       'THE SHEET NEEDS EXACTLY ONE REGFILE': '図面には REGFILE がちょうど 1 個必要。',
+      'SERIAL OUTPUT DIFFERS': 'シリアル出力が期待と異なる。',
+    },
+    // The demo run of the last drawing (RUN FIZZBUZZ).
+    demo: {
+      idle: '図面上の回路で 1 から 100 までの FizzBuzz を実行し、命令ごとにリファレンスと照合する。得点も評価もない。',
+      stopped: 'ステップ {n} で停止した。',
+      locked: '先に VERIFY に合格すること: デモは合格した CPU で動く。',
     },
   },
 };

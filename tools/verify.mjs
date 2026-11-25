@@ -9,13 +9,17 @@
 //     hints as the English (every qualification needs a Japanese description too),
 //   - for a program stage, the previous program stage's reference CPU fails the new program
 //     (skipped when the two references are the same circuit, as for HELLO).
+// Then the demo: the FizzBuzz program assembles, the last CPU drawing's reference runs it to
+// the end in lockstep with the reference interpreter, and the UART prints the 100 expected lines.
+// The demo's interface prose needs Japanese too.
 // One line per stage, then the elapsed time; exits 1 on any failure.
 // No dependencies: node tools/verify.mjs
 
 import { PARTS, truthTable, nandCount } from '../js/sim.js';
 import { STAGES, BADGES, partsFor } from '../js/levels.js';
 import { JA } from '../js/i18n.ja.js';
-import { runProgram } from '../js/rv32.js';
+import { runProgram, startProgram, assemble, refRun } from '../js/rv32.js';
+import { fizzbuzzText } from '../js/fizzbuzz.js';
 
 const t0 = performance.now();
 const secs = (t) => ((performance.now() - t) / 1000).toFixed(1) + ' S';
@@ -138,12 +142,46 @@ for (const st of STAGES) {
   if (problems.length) failed++;
   console.log(`${problems.length ? 'FAIL' : 'OK  '} ${st.num.padEnd(5)} ${st.id.padEnd(7)} ${st.title.padEnd(22)} gold ${String(st.gold).padStart(6)}  ${[...problems, ...notes].join('; ')}`);
 }
+// The FizzBuzz demo on the stage that offers it, run to the end like the DEMO control does.
+function demoCheck() {
+  const t = performance.now();
+  const st = STAGES.find((s) => s.demo);
+  if (!st) return ['NO STAGE OFFERS THE DEMO'];
+  const words = assemble(st.demo);
+  const want = fizzbuzzText();
+  if (words.length * 4 > 0x400) return [`${words.length} WORDS RUN INTO THE DATA AT 80000400`];
+  const ref = refRun(words);
+  if (ref.uart !== want) return [`REFERENCE INTERPRETER PRINTS ${JSON.stringify(ref.uart.slice(0, 40))}...`];
+  const m = startProgram({ words, outs: st.outs }, build(st, st.solution).circuit);
+  let n = 0;
+  for (; !m.done() && n < ref.steps; n++) {
+    const { pc, why } = m.step();
+    if (why) return [`STEP ${n} PC ${pc.toString(16).toUpperCase().padStart(8, '0')}: ${why}`];
+  }
+  if (!m.done()) return [`NOT DONE AFTER ${n} STEPS`];
+  if (m.uart !== want) return [`SERIAL ${JSON.stringify(m.uart.slice(0, 40))}...`];
+  return { notes: `${words.length} WORDS; ${n} INSTRUCTIONS; ${want.split('\n').length - 1} LINES; ${secs(t)}` };
+}
+const demo = demoCheck();
+const demoFail = Array.isArray(demo);
+console.log(`${demoFail ? 'FAIL' : 'OK  '} DEMO  FIZZBUZZ ON ${STAGES.find((s) => s.demo)?.id ?? '-'}  ${demoFail ? demo.join('; ') : demo.notes}`);
+
+// Japanese for the demo's prose (renderDemo and renderDemoControls in js/main.js).
+const demoJa = [
+  ['ui.demo.idle', JA.ui?.demo?.idle],
+  ['ui.demo.stopped', JA.ui?.demo?.stopped],
+  ['ui.demo.locked', JA.ui?.demo?.locked],
+  ['ui.why.SERIAL OUTPUT DIFFERS', JA.ui?.why?.['SERIAL OUTPUT DIFFERS']],
+]
+  .filter(([, v]) => !filled(v))
+  .map(([k]) => k);
 const noJa = BADGES.filter((b) => !filled(JA.badges?.[b.id])).map((b) => b.id);
 const unknownJa = Object.keys(JA.stages).filter((id) => !STAGES.some((s) => s.id === id));
 if (noJa.length) console.log(`FAIL QUALIFICATIONS WITHOUT A JAPANESE DESCRIPTION: ${noJa.join(' ')}`);
 if (unknownJa.length) console.log(`FAIL JAPANESE TEXT FOR UNKNOWN STAGES: ${unknownJa.join(' ')}`);
-const jaFail = noJa.length > 0 || unknownJa.length > 0;
+if (demoJa.length) console.log(`FAIL NO JAPANESE FOR ${demoJa.join(', ')}`);
+const jaFail = noJa.length > 0 || unknownJa.length > 0 || demoJa.length > 0;
 if (!jaFail) console.log(`OK   JAPANESE TEXT FOR ${STAGES.length} STAGES AND ${BADGES.length} QUALIFICATIONS`);
-console.log(failed ? `${failed} OF ${STAGES.length} STAGES FAIL` : jaFail ? `ALL ${STAGES.length} STAGES OK, JAPANESE TEXT INCOMPLETE` : `ALL ${STAGES.length} STAGES OK`);
+console.log(failed ? `${failed} OF ${STAGES.length} STAGES FAIL` : demoFail ? `ALL ${STAGES.length} STAGES OK, DEMO FAILS` : jaFail ? `ALL ${STAGES.length} STAGES OK, JAPANESE TEXT INCOMPLETE` : `ALL ${STAGES.length} STAGES OK`);
 console.log(`ELAPSED ${secs(t0)}`);
-process.exit(failed || jaFail ? 1 : 0);
+process.exit(failed || jaFail || demoFail ? 1 : 0);

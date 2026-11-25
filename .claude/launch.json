@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "nand2riscv",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "exec python3 -c \"import http.server as h, os\nclass H(h.SimpleHTTPRequestHandler):\n    def end_headers(self):\n        self.send_header('Cache-Control', 'no-store')\n        super().end_headers()\nh.ThreadingHTTPServer.request_queue_size = 128\nh.test(HandlerClass=H, ServerClass=h.ThreadingHTTPServer, protocol='HTTP/1.1', port=int(os.environ.get('PORT', '8795')), bind='127.0.0.1')\""
+      ],
+      "port": 8795,
+      "autoPort": true
+    }
+  ]
+}

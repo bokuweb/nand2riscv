@@ -61,7 +61,10 @@
 
         <aside class="check">
           <div id="listing-box" class="listing-box" hidden>
-            <h3 id="listing-title">Program listing</h3>
+            <div class="listing-head">
+              <h3 id="listing-title">Program listing</h3>
+              <div id="prog-switch" class="prog-switch" role="group" aria-label="PROGRAM" hidden><small>PROGRAM</small><button data-view="prog">TEST</button><button data-view="demo">DEMO</button></div>
+            </div>
             <div id="listing" class="listing"><table></table></div>
           </div>
           <h3 id="test-title">Truth table</h3>
@@ -71,8 +74,11 @@
             <pre id="console" class="console" aria-live="polite"></pre>
             <p id="serial-status" class="serial-status"></p>
           </div>
+          <div id="demo-status" class="progress" hidden></div>
           <div id="progress" class="progress"></div>
           <button id="submit" class="primary" disabled></button>
+          <button id="demo" hidden>RUN FIZZBUZZ</button>
+          <p id="demo-note" class="progress" hidden></p>
         </aside>
       </div>
     </div>

@@ -5,8 +5,9 @@ Goal 1 is a self-built processor that prints HELLO to a UART (section 7); goal 2
 complete RV32I processor with byte and half-word access (section 8). Both are built.
 Each stage asks for one circuit; clearing it unlocks that circuit as a part for later stages.
 
-Static site, no build step. Serve the directory and open `index.html`
-(the `nand2riscv` entry in `.claude/launch.json`, named after the directory, does this on port 8795).
+Static site, no build step. Serve the directory, e.g. `python3 -m http.server 8795`, and open
+`http://localhost:8795/`. For Claude Code previews, `.claude/launch.json` has a `nand2riscv` entry that serves it
+on port 8795 (another port when that one is taken) with caching off.
 
 ## Look
 
@@ -43,13 +44,16 @@ Section 8 (GOAL 2) is LOAD UNIT, STORE UNIT, CPU / RV32I. CPU / RV32I is the las
 `node tools/verify.mjs` checks every stage: the reference solution passes, its NAND count equals `gold`, an empty
 sheet fails, every part is in the stage's palette, every wire joins equal widths, and a program stage's previous
 reference CPU fails the new program (HELLO excepted: it reuses the CPU before it). It also checks the Japanese text,
-prints the elapsed time (about 0.4 s, Node 24 on an Apple laptop) and exits non-zero on a failure.
+runs the FizzBuzz demo on the `cpu5` reference circuit in lockstep with `refStep` (3,879 instructions, about 2.5 s)
+and compares its UART output with the 100 lines generated in JS, prints the elapsed time (about 3 s in all,
+Node 24 on an Apple laptop) and exits non-zero on a failure.
 
 ## Goals
 
 - GOAL 1 (section 7, done): a self-built RV32I processor prints HELLO to a UART.
 - GOAL 2 (section 8, done): the complete RV32I processor: load unit, store unit, CPU with byte and half-word
-  access; its program upper-cases a string in memory one byte at a time and prints `HELLO RV32I`.
+  access; its program upper-cases a string in memory one byte at a time and prints `HELLO RV32I`. Once it passes,
+  the same circuit runs FizzBuzz (see Demo).
 
 RV32I here leaves out ECALL, EBREAK and FENCE: with no traps, no operating system and one hart with no cache, they
 have nothing to do on this machine.
@@ -65,6 +69,8 @@ interpreter `refStep`, which every drawn CPU runs in lockstep with.
 
 - Grade: C for a correct circuit, B for NAND count ≤ `silver`, A for NAND count ≤ `gold`
   (stored as `stars` 1–3). A part counts as its `cost` in NANDs (`js/sim.js`).
+- VERIFY sweeps the test rows, then reports. `< INDEX` stays usable during the sweep and cancels it: nothing is
+  scored and the sheet is unlocked.
 - Points: 100 for a first pass, 50 per grade step gained, 75 per qualification. Operator classes are in `js/store.js`.
 - SHOW ANSWER loads the stage's reference netlist (`SOLUTIONS` in `js/levels.js`). A sheet passed that way is
   capped at grade C until it is cleared and redrawn.
@@ -82,7 +88,8 @@ interpreter `refStep`, which every drawn CPU runs in lockstep with.
 - `js/levels.js` — sections, drawings (stages) and qualifications; all text is English
 - `js/i18n.js`, `js/i18n.ja.js` — EN / JA lookup and the Japanese prose
 - `js/rv32.js` — assembler, disassembler, reference interpreter, program harness
-- `tools/verify.mjs` — checks every stage's reference solution, limits, palette and bus widths
+- `js/fizzbuzz.js` — the demo program of the last drawing and its expected output
+- `tools/verify.mjs` — checks every stage's reference solution, limits, palette and bus widths, and the demo
 - `js/editor.js` — SVG circuit editor (schematic gate symbols, orthogonal wires)
 - `js/main.js` — drawing index, drawing sheet and verification report, progression
 - `js/panes.js` — resizable side panels on the drawing sheet
@@ -138,6 +145,29 @@ stages are derived from the reference CPU's NAND count.
   lanes with SB and halves with SH, then upper-cases a 12-byte string in place with LBU / SB and prints it:
   `HELLO RV32I` (165 steps).
 - Section grant (wiring, cost 0): `LOW2`, `SHR8`, `SHR16`, the four extenders, `JOIN4`.
+
+## Demo
+
+The last drawing (`cpu5`, `demo` in `js/levels.js`) has a `RUN FIZZBUZZ` control under VERIFY. VERIFY animates every
+step and stops at 300, so its program stays short; the demo runs a longer one at full speed on the circuit on the sheet:
+FizzBuzz from 1 to 100 (`js/fizzbuzz.js`), RV32I only. With no divide it keeps a mod-3 and a mod-5 down-counter and
+the number as ASCII digits in memory, incremented with carry by `LBU` / `SB`; `FIZZ`, `BUZZ` and the digits are
+zero-terminated strings printed by a `PUTS` subroutine called with `JAL` and left with `JALR`. 57 words, 3,879
+instructions, ending in the usual `jal x0, done` halt loop.
+
+- Available once `cpu5` is passed in the save; before that the control is disabled with a note.
+- Runs in time slices (`demoTick` in `js/main.js`, about 12 ms of simulation each) on `startProgram` from
+  `js/rv32.js`, which steps the drawn CPU and `refStep` together. A run that would finish in under 6 s is paced to
+  about 6 s so the output visibly streams; the sheet, PC, current instruction, step count and a progress bar
+  follow it.
+- The first difference from the reference stops it and is reported like a VERIFY failure (step, PC, what
+  differed); the output is also compared with the reference's at the end. A clean run ends with
+  `DEMO COMPLETE / N INSTRUCTIONS / T S`.
+- `STOP`, VERIFY, any edit of the sheet, a trace row, `PROGRAM: TEST`, switching language or leaving the stage
+  ends the run. `PROGRAM: TEST / DEMO` above the listing picks which program the listing and console show: the
+  stage's test program with its execution trace, or FizzBuzz, where the trace is hidden and the console takes its
+  height. VERIFY and reopening the stage return to the test program.
+- No points, grade, qualification or save change.
 
 ## Known gaps
 
