@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NAND2RISCV</title>
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <div id="map" class="screen"></div>
+
+    <div id="stage" class="screen" hidden>
+      <header class="stage-bar">
+        <button id="back">&lt; INDEX</button>
+        <div class="cell grow"><small>DWG</small><b><span id="st-num"></span> <span id="st-title"></span></b></div>
+        <div class="cell"><small>NAND</small><b id="nc">0</b></div>
+        <div class="cell"><small>GRADE</small><b id="nc-grade">-</b></div>
+        <div class="cell"><small>LIMIT</small><b id="st-targets"></b></div>
+        <div class="cell"><small>TIME</small><b id="timer">0:00</b></div>
+        <button id="st-lang" class="lang">LANG EN</button>
+      </header>
+
+      <div class="stage-cols">
+        <aside class="brief">
+          <h3>Specification</h3>
+          <p id="goal" class="goal"></p>
+          <h3>Notes</h3>
+          <p id="story" class="story"></p>
+          <div id="hints"></div>
+          <button id="answer">SHOW ANSWER</button>
+          <details id="howto">
+            <summary>CONTROLS</summary>
+            <ul>
+              <li>Click a part, or drag it onto the sheet, to place it.</li>
+              <li>Drag from terminal to terminal to wire.</li>
+              <li>Click an input pin to toggle 0 / 1.</li>
+              <li>Select a part or wire, then DELETE. CTRL/CMD+Z to undo.</li>
+              <li>Zoom with wheel, ZOOM +/-, + / - keys or double-click; 0 or FIT resets. Drag the empty sheet to pan.</li>
+              <li>Drag the line beside a panel to resize it; double-click it to reset.</li>
+            </ul>
+          </details>
+        </aside>
+        <div class="pane-handle" data-side="left" role="separator" aria-orientation="vertical" tabindex="0"></div>
+
+        <main class="bench">
+          <div class="toolbar">
+            <div id="palette" class="palette"></div>
+            <div class="tools">
+              <button id="tool-zoom-out">ZOOM -</button>
+              <button id="tool-zoom-in">ZOOM +</button>
+              <button id="tool-fit">FIT</button>
+              <button id="tool-del">DELETE</button>
+              <button id="tool-undo">UNDO</button>
+              <button id="tool-clear">CLEAR</button>
+            </div>
+          </div>
+          <svg id="board" preserveAspectRatio="xMidYMid meet"></svg>
+          <div id="status" class="status"></div>
+        </main>
+        <div class="pane-handle" data-side="right" role="separator" aria-orientation="vertical" tabindex="0"></div>
+
+        <aside class="check">
+          <div id="listing-box" class="listing-box" hidden>
+            <h3 id="listing-title">Program listing</h3>
+            <div id="listing" class="listing"><table></table></div>
+          </div>
+          <h3 id="test-title">Truth table</h3>
+          <div class="table-wrap"><table id="table"></table></div>
+          <div id="serial" class="serial" hidden>
+            <h3>Serial console</h3>
+            <pre id="console" class="console" aria-live="polite"></pre>
+            <p id="serial-status" class="serial-status"></p>
+          </div>
+          <div id="progress" class="progress"></div>
+          <button id="submit" class="primary" disabled></button>
+        </aside>
+      </div>
+    </div>
+
+    <div id="modal" hidden></div>
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>

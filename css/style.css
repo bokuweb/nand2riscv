@@ -1,0 +1,856 @@
+/* Monochrome drawing-office look: black sheet, white hairlines, monospace capitals, no colour. */
+
+:root {
+  --bg: #000;
+  --fg: #fff;
+  --mid: #8c8c8c;
+  --line: #3c3c3c;
+  --faint: #161616;
+  --mono: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+  /* Japanese prose: Latin stays in the monospace face, kana and kanji fall through to a
+     system Japanese gothic. */
+  --ja: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'BIZ UDGothic',
+    'Noto Sans Mono CJK JP', 'Noto Sans JP', 'Yu Gothic', Meiryo, ui-monospace, monospace;
+}
+
+* {
+  box-sizing: border-box;
+  border-radius: 0;
+}
+[hidden] {
+  display: none !important;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  text-transform: uppercase;
+}
+pre {
+  margin: 0;
+  font: inherit;
+  font-size: 10px;
+  line-height: 1.2;
+}
+h1,
+h3,
+p {
+  margin: 0;
+}
+h1 {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.24em;
+  line-height: 1.2;
+}
+h3 {
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--mid);
+  margin: 0 0 8px;
+}
+small {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--mid);
+}
+button {
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--fg);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+button:hover:not(:disabled),
+button.primary:not(:disabled) {
+  background: var(--fg);
+  color: var(--bg);
+}
+button.primary:hover:not(:disabled) {
+  background: var(--bg);
+  color: var(--fg);
+}
+button:disabled {
+  color: var(--mid);
+  border-color: var(--line);
+  cursor: not-allowed;
+}
+.inv {
+  background: var(--fg);
+  color: var(--bg);
+  padding: 0 6px;
+}
+
+/* Title-block style cells, used by both headers. */
+.top,
+.stage-bar {
+  display: flex;
+  flex-wrap: wrap;
+  border: 1px solid var(--fg);
+}
+.cell {
+  padding: 6px 14px;
+  border-left: 1px solid var(--fg);
+  min-width: 110px;
+}
+.cell:first-child,
+.cell.grow {
+  border-left: 0;
+}
+.cell.grow {
+  flex: 1;
+  min-width: min(300px, 100%);
+  box-sizing: border-box;
+}
+.cell b {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+.top button,
+.stage-bar button {
+  border: 0;
+  border-left: 1px solid var(--fg);
+}
+.stage-bar #back {
+  border-left: 0;
+  border-right: 1px solid var(--fg);
+}
+
+/* ---------- drawing index ---------- */
+
+#map {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 16px 16px 60px;
+}
+.map-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 24px;
+  align-items: start;
+  margin-top: 20px;
+}
+.map-cols aside h3:not(:first-child) {
+  margin-top: 24px;
+}
+.sheet-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--fg);
+}
+.sheet-table th,
+.sheet-table td {
+  text-align: left;
+  font-weight: 400;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.sheet-table thead th {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--mid);
+  border-bottom: 1px solid var(--fg);
+}
+.sheet-table .sec th {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  padding-top: 10px;
+  border-top: 1px solid var(--fg);
+  border-bottom: 1px solid var(--fg);
+}
+.sheet-table .void td,
+.sheet-table .locked td {
+  color: #555;
+}
+.index tr.open {
+  cursor: pointer;
+}
+.index tr.open:hover td,
+.index tr.open:focus td {
+  background: var(--fg);
+  color: var(--bg);
+  outline: none;
+}
+.index tr.current td {
+  font-weight: 700;
+}
+.quals td {
+  white-space: normal;
+}
+.quals td:first-child,
+.quals td:last-child {
+  white-space: nowrap;
+  vertical-align: top;
+}
+.quals small {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.foot {
+  margin-top: 8px;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--mid);
+}
+#reset {
+  margin-top: 16px;
+  color: var(--mid);
+  border-color: var(--line);
+}
+
+/* ---------- drawing sheet ---------- */
+
+#stage {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+/* Panel widths are variables so js/panes.js can override them; the zero-width tracks
+   hold the resize handles. */
+.stage-cols {
+  --pane-left: 264px;
+  --pane-right: 232px;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--pane-left) 0 minmax(0, 1fr) 0 var(--pane-right);
+}
+/* A 7px hit area centred on the panel's 1px rule, taking no room in its 0 track. While
+   hovered, dragged or focused the rule is drawn heavy. */
+.pane-handle {
+  position: relative;
+  z-index: 2;
+  width: 7px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  outline: none;
+}
+.pane-handle[data-side='left'] {
+  margin: 0 -3px 0 -4px;
+}
+.pane-handle[data-side='right'] {
+  margin: 0 -4px 0 -3px;
+}
+.pane-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 3px;
+}
+.pane-handle:hover::after,
+.pane-handle:focus-visible::after,
+.pane-handle.drag::after {
+  background: var(--fg);
+}
+.resizing,
+.resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+.brief,
+.check {
+  padding: 12px 14px;
+  overflow: auto;
+}
+.check {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-left: 1px solid var(--fg);
+}
+.check h3 {
+  margin: 0;
+}
+/* Only the table gives way when the panel is short, so the console, the
+   progress line and VERIFY stay in view; a long program scrolls in place. */
+.check > * {
+  flex: none;
+}
+.check > .table-wrap {
+  flex: 0 1 auto;
+  min-height: 96px;
+  overflow: auto;
+}
+.goal {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+.story {
+  margin-bottom: 14px;
+}
+.hint {
+  border-left: 1px solid var(--fg);
+  padding-left: 10px;
+  margin-bottom: 10px;
+}
+.hint b {
+  display: block;
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.2em;
+  color: var(--mid);
+}
+details {
+  margin-top: 16px;
+  color: var(--mid);
+}
+details ul {
+  padding-left: 14px;
+  margin: 6px 0 0;
+  list-style: square;
+}
+summary {
+  cursor: pointer;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+}
+.bench {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--fg);
+}
+.palette,
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+}
+.palette button,
+.tools button {
+  margin: 0 -1px -1px 0;
+}
+.chip {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  touch-action: none;
+  user-select: none;
+}
+.chip small {
+  letter-spacing: 0;
+  color: inherit;
+  opacity: 0.6;
+}
+.ghost-part {
+  position: fixed;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 50;
+  background: var(--bg);
+  border: 1px dashed var(--fg);
+  padding: 8px 16px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+}
+#board {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: block;
+  background: var(--bg);
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#board text {
+  pointer-events: none;
+  fill: var(--fg);
+  text-anchor: middle;
+  font-family: var(--mono);
+}
+.sheet rect,
+.sheet path {
+  fill: none;
+  stroke: var(--fg);
+  stroke-width: 1;
+}
+#board .sheet text {
+  text-anchor: start;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  fill: var(--mid);
+}
+.wire {
+  fill: none;
+  stroke: #777;
+  stroke-width: 1;
+  stroke-linejoin: miter;
+  stroke-linecap: square;
+  pointer-events: none;
+}
+.wire.on {
+  stroke: var(--fg);
+  stroke-width: 2;
+}
+.wire.sel {
+  stroke: var(--fg);
+  stroke-dasharray: 6 4;
+}
+.wire.ghost {
+  stroke: var(--fg);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+.wire-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14;
+  cursor: pointer;
+}
+.grab {
+  fill: transparent;
+  stroke: none;
+  cursor: move;
+}
+.part.sel .grab {
+  stroke: var(--fg);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.body {
+  fill: var(--bg);
+  stroke: var(--fg);
+  stroke-width: 1;
+  pointer-events: none;
+}
+.lead {
+  fill: none;
+  stroke: var(--fg);
+  stroke-width: 1;
+  pointer-events: none;
+}
+.plabel {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+}
+#board .ptag {
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  fill: var(--mid);
+}
+#board .portlbl {
+  font-size: 8px;
+  fill: var(--mid);
+  text-anchor: start;
+}
+#board .portlbl.end {
+  text-anchor: end;
+}
+.pin rect {
+  fill: var(--bg);
+  stroke: var(--fg);
+  stroke-width: 1;
+}
+.pin.in rect {
+  cursor: pointer;
+}
+.pin.on rect {
+  fill: var(--fg);
+}
+#board .pin.on .pval {
+  fill: var(--bg);
+}
+.pin.out.ng rect {
+  stroke-dasharray: 4 3;
+}
+.pval {
+  font-size: 16px;
+  font-weight: 700;
+}
+#board .pname {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  fill: var(--mid);
+}
+.port {
+  fill: var(--bg);
+  stroke: var(--fg);
+  stroke-width: 1;
+  pointer-events: none;
+}
+.port.on {
+  fill: var(--fg);
+}
+.port-hit {
+  fill: transparent;
+  cursor: crosshair;
+}
+.port-hit:hover {
+  fill: rgba(255, 255, 255, 0.25);
+}
+
+#table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: center;
+  font-size: 12px;
+}
+#table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  box-shadow: inset 0 -1px 0 var(--fg);
+  color: var(--mid);
+  font-weight: 400;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  border-bottom: 1px solid var(--fg);
+}
+#table td {
+  padding: 2px;
+  border-bottom: 1px solid var(--line);
+}
+#table tbody tr {
+  cursor: pointer;
+}
+#table tr.cur td {
+  border-top: 1px solid var(--fg);
+  border-bottom: 1px solid var(--fg);
+}
+#table td.sep {
+  color: var(--line);
+}
+#table td.mark {
+  width: 30px;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--mid);
+}
+#table tr.ng td.mark,
+#table td.exp.diff {
+  background: var(--fg);
+  color: var(--bg);
+  font-weight: 700;
+}
+#table tr.verified td {
+  background: var(--fg);
+  color: var(--bg);
+}
+.progress {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--mid);
+}
+#submit {
+  margin-top: auto;
+  padding: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+}
+#answer {
+  display: block;
+  margin-top: 6px;
+}
+#more-hint {
+  display: block;
+}
+
+/* ---------- verification report ---------- */
+
+#modal,
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(0, 0, 0, 0.88);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  overflow: auto;
+}
+.dialog {
+  width: min(560px, 100%);
+  background: var(--bg);
+  border: 1px solid var(--fg);
+  padding: 14px;
+}
+.report th {
+  width: 150px;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--mid);
+}
+.report td {
+  white-space: normal;
+}
+.report .big {
+  font-size: 28px;
+  line-height: 1.1;
+}
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.actions button {
+  margin-left: -1px;
+}
+
+.stage-bar {
+  border-width: 0 0 1px;
+}
+.stage-cols.wide {
+  --pane-right: 420px;
+}
+.wide #table {
+  font-size: 10px;
+}
+#table th.txt,
+#table td.txt {
+  text-align: left;
+  white-space: nowrap;
+  padding-left: 8px;
+}
+.progress p {
+  margin-top: 6px;
+  color: var(--fg);
+  letter-spacing: 0.06em;
+  white-space: pre-wrap;
+}
+/* The listing keeps case so character literals read as written; the text it
+   prints is in capitals already. It shares the panel height with the trace
+   and scrolls in place. */
+.check > .listing-box {
+  flex: 0 1 auto;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+}
+.listing-box h3 {
+  margin: 0 0 6px;
+}
+.listing {
+  min-height: 0;
+  overflow: auto;
+  text-transform: none;
+}
+.listing table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+.listing th {
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  box-shadow: inset 0 -1px 0 var(--fg);
+  color: var(--mid);
+  font-weight: 400;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-align: left;
+}
+.listing th,
+.listing td {
+  padding: 1px 6px 1px 0;
+  white-space: nowrap;
+  vertical-align: top;
+}
+.listing td.mn {
+  padding-left: 2ch;
+}
+.listing td.cm {
+  width: 100%;
+  white-space: normal;
+  color: var(--mid);
+}
+.listing tr[data-addr] {
+  cursor: pointer;
+}
+.listing tr.idle {
+  color: #555;
+  cursor: default;
+}
+.listing tr.idle td.cm {
+  color: #444;
+}
+.listing tr.cur td,
+.listing tr.cur td.cm {
+  background: var(--fg);
+  color: var(--bg);
+}
+.listing tr.label td {
+  padding-top: 4px;
+}
+
+/* The console prints what the CPU sent, so it keeps case and newlines. */
+.serial h3 {
+  margin: 0 0 6px;
+}
+.console {
+  height: calc(5 * 1.4em + 18px);
+  padding: 8px 10px;
+  border: 1px solid var(--fg);
+  font-size: 15px;
+  line-height: 1.4;
+  text-transform: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-y: auto;
+}
+.console .caret {
+  display: inline-block;
+  width: 0.6em;
+  height: 1.2em;
+  vertical-align: text-bottom;
+  background: var(--fg);
+}
+.serial-status,
+.serial-out {
+  text-transform: none;
+}
+.serial-status {
+  margin-top: 6px;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--mid);
+  white-space: pre-wrap;
+}
+.progress .why {
+  background: var(--fg);
+  color: var(--bg);
+  padding: 2px 6px;
+}
+.wire.bus {
+  stroke-width: 3;
+}
+.wire.bus.on {
+  stroke-width: 4;
+}
+#board .pin.bus .pval {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+.brief {
+  border-right: 1px solid var(--fg);
+}
+.status {
+  padding: 3px 10px;
+  border-top: 1px solid var(--fg);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--mid);
+  white-space: pre;
+  overflow: hidden;
+}
+.dot {
+  fill: #5a5a5a;
+}
+.sheet .block {
+  fill: var(--bg);
+}
+#board .sheet text.zone {
+  text-anchor: middle;
+}
+.overlay {
+  z-index: 40;
+}
+.overlay .dialog {
+  width: min(440px, 100%);
+}
+.ask-title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--fg);
+}
+
+/* LANG JA: translated prose is sentence text, not drawing capitals. Marked lang="ja" by
+   js/i18n.js; the chrome around it stays as it is. */
+body [lang='ja'] {
+  font-family: var(--ja);
+  text-transform: none;
+  letter-spacing: 0;
+  line-height: 1.75;
+  line-break: strict;
+  overflow-wrap: anywhere;
+}
+.goal[lang='ja'] {
+  font-size: 12px;
+}
+small [lang='ja'],
+.foot [lang='ja'] {
+  font-size: 10px;
+}
+.progress .why [lang='ja'] {
+  line-height: 1.6;
+}
+
+@media (max-width: 1180px) {
+  /* The specification spans the top, so only the test panel's boundary resizes. */
+  .stage-cols {
+    --pane-right: 220px;
+    grid-template-columns: minmax(0, 1fr) 0 var(--pane-right);
+    grid-template-rows: auto 1fr;
+  }
+  .stage-cols.wide {
+    --pane-right: 360px;
+  }
+  .pane-handle[data-side='left'] {
+    display: none;
+  }
+  .brief {
+    grid-column: 1 / -1;
+    max-height: 22vh;
+    border-right: 0;
+    border-bottom: 1px solid var(--fg);
+  }
+  .map-cols {
+    grid-template-columns: 1fr;
+  }
+  .map-cols > * {
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  #stage {
+    height: auto;
+  }
+  .stage-cols {
+    grid-template-columns: 1fr;
+  }
+  .pane-handle {
+    display: none;
+  }
+  #board {
+    flex: none;
+    height: 70vh;
+  }
+  .check {
+    border-left: 0;
+    border-top: 1px solid var(--fg);
+  }
+}
