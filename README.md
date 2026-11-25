@@ -69,8 +69,9 @@ interpreter `refStep`, which every drawn CPU runs in lockstep with.
 
 - Grade: C for a correct circuit, B for NAND count ≤ `silver`, A for NAND count ≤ `gold`
   (stored as `stars` 1–3). A part counts as its `cost` in NANDs (`js/sim.js`).
-- VERIFY sweeps the test rows, then reports. `< INDEX` stays usable during the sweep and cancels it: nothing is
-  scored and the sheet is unlocked.
+- VERIFY sweeps the test rows, then reports. During the sweep the button reads `STOP`: it (or ESC, when no
+  dialog is open) cancels the sweep, as does `< INDEX`. Nothing is scored, the sheet (and a SHOW ANSWER grade
+  cap) is kept and unlocked, and the panel returns to VERIFY with `VERIFY STOPPED. NOTHING SCORED.`
 - Points: 100 for a first pass, 50 per grade step gained, 75 per qualification. Operator classes are in `js/store.js`.
 - SHOW ANSWER loads the stage's reference netlist (`SOLUTIONS` in `js/levels.js`). A sheet passed that way is
   capped at grade C until it is cleared and redrawn.

@@ -390,8 +390,9 @@ function onCircuitChange(structural) {
   renderDemoControls();
   if (session.busy) $('#table tr.cur')?.scrollIntoView({ block: 'nearest' });
   const submit = $('#submit');
-  submit.disabled = !allOk || session.busy;
-  submit.textContent = allOk ? 'VERIFY' : rowsOk ? 'SERIAL OUTPUT MUST MATCH' : 'ALL ROWS MUST MATCH';
+  // During the sweep the button is its STOP (like RUN FIZZBUZZ / STOP).
+  submit.disabled = session.sweep ? false : !allOk || session.busy;
+  submit.textContent = session.sweep ? 'STOP' : allOk ? 'VERIFY' : rowsOk ? 'SERIAL OUTPUT MUST MATCH' : 'ALL ROWS MUST MATCH';
   if (allOk && !session.allOk && !session.busy) sfx.ready();
   session.allOk = allOk;
   if (structural) persist();
@@ -583,18 +584,26 @@ function gotoRow(i) {
   else editor.setInputs(rows[i].ins);
 }
 
-// The sweep belongs to the session it started in. Leaving the sheet (INDEX, or
-// another stage opened by any route) replaces that session, and the sweep then
-// just stops: showMap / openStage have already unlocked the sheet.
+// The sweep belongs to the session it started in and to its own token
+// (`session.sweep`, set while rows are being swept). Leaving the sheet (INDEX, or
+// another stage opened by any route) replaces that session; STOP / ESC clears the
+// token (stopVerify). Either way the sweep just stops after its next await, and a
+// newer sweep on the same sheet has a token of its own.
 async function submit() {
   if (!session || session.busy) return;
   if (!session.allOk) return;
   const s = session;
+  const run = {};
+  const live = () => session === s && s.sweep === run;
   stopDemo();
   s.view = 'prog';
   s.busy = true;
+  s.sweep = run;
   editor.locked = true;
   $('#stage').classList.add('busy');
+  $('#submit').disabled = false;
+  $('#submit').textContent = 'STOP';
+  renderDemoControls();
   const rows = runTest(s.st, editor.circuit()).rows;
   const pause = s.st.uart ? 170 : rows.length > 20 ? 40 : rows.length > 8 ? 80 : 160;
   for (let i = 0; i < rows.length; i++) {
@@ -603,11 +612,27 @@ async function submit() {
     sfx.row();
     // A printing program sweeps slowly enough to read the console fill up.
     await sleep(pause);
-    if (session !== s) return;
+    if (!live()) return;
   }
   await sleep(200);
-  if (session !== s) return;
+  if (!live()) return;
+  // Graded from here on: STOP no longer applies (busy stays set under the report).
+  s.sweep = null;
   finish();
+}
+
+// STOP / ESC during the sweep: nothing is graded and the sheet (and `ref`) stay
+// as they were; the panel returns to its state before VERIFY.
+function stopVerify() {
+  const s = session;
+  if (!s?.sweep) return;
+  s.sweep = null;
+  s.busy = false;
+  s.verified = 0;
+  editor.locked = false;
+  $('#stage').classList.remove('busy');
+  onCircuitChange(false);
+  $('#progress').insertAdjacentHTML('beforeend', `<p>${trHtml('ui.verify.stopped', 'VERIFY STOPPED. NOTHING SCORED.')}</p>`);
 }
 
 function finish() {
@@ -713,7 +738,7 @@ $('#back').onclick = () => {
   persist();
   showMap();
 };
-$('#submit').onclick = submit;
+$('#submit').onclick = () => (session?.sweep ? stopVerify() : submit());
 $('#demo').onclick = () => (demo ? stopDemo() : startDemo());
 $('#prog-switch').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-view]');
@@ -810,6 +835,12 @@ $('#palette').addEventListener('pointerdown', (e) => {
 });
 
 addEventListener('keydown', (e) => {
+  // ESC stops a sweep. An open confirm (ask) swallows keys before this listener;
+  // the overlay and report checks keep ESC from reaching past any dialog anyway.
+  if (e.key === 'Escape' && session?.sweep && !document.querySelector('.overlay') && $('#modal').hidden) {
+    e.preventDefault();
+    return stopVerify();
+  }
   if (!session || session.busy) return;
   if (e.key === 'Delete' || e.key === 'Backspace') {
     e.preventDefault();

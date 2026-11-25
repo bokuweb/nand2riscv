@@ -353,5 +353,9 @@ export const JA = {
       stopped: 'ステップ {n} で停止した。',
       locked: '先に VERIFY に合格すること: デモは合格した CPU で動く。',
     },
+    // VERIFY stopped by STOP / ESC (stopVerify in js/main.js).
+    verify: {
+      stopped: 'VERIFY を中止した。採点はしていない。',
+    },
   },
 };

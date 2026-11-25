@@ -172,6 +172,7 @@ const demoJa = [
   ['ui.demo.stopped', JA.ui?.demo?.stopped],
   ['ui.demo.locked', JA.ui?.demo?.locked],
   ['ui.why.SERIAL OUTPUT DIFFERS', JA.ui?.why?.['SERIAL OUTPUT DIFFERS']],
+  ['ui.verify.stopped', JA.ui?.verify?.stopped],
 ]
   .filter(([, v]) => !filled(v))
   .map(([k]) => k);
