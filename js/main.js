@@ -740,6 +740,8 @@ $('#tool-fit').onclick = () => {
 $('#tool-del').onclick = () => editor.deleteSelected();
 $('#tool-undo').onclick = () => editor.undo();
 $('#tool-clear').onclick = () => {
+  // Not during a sweep: the sheet is locked, and dropping `ref` would lift the grade cap.
+  if (!session || session.busy) return;
   editor.clear();
   session.ref = false;
   persist();

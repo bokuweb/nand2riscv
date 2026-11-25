@@ -903,7 +903,14 @@ small [lang='ja'],
     border-left: 0;
     border-top: 1px solid var(--fg);
   }
-  /* The panel has no fixed height here, so the demo console gets one of its own. */
+  /* The panel has no fixed height here, so nothing can be a share of it: the
+     listing is capped by the viewport and the demo console gets a height of its own. */
+  .check.demo-view > .listing-box {
+    max-height: 40vh;
+  }
+  .check.demo-view > .serial {
+    flex: none;
+  }
   .check.demo-view .console {
     flex: none;
     height: calc(20 * 1.4em + 18px);
