@@ -678,6 +678,17 @@ summary {
   padding-top: 1px;
   padding-bottom: 1px;
 }
+.ref details.fold {
+  margin: 16px 0 6px;
+  color: var(--fg);
+}
+.fold summary {
+  text-transform: uppercase;
+  color: var(--mid);
+}
+.fold[open] summary {
+  margin-bottom: 6px;
+}
 .steps,
 .debug {
   margin: 0;

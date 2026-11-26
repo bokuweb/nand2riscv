@@ -344,8 +344,15 @@ function renderRef() {
     h += '<h3>Instructions added</h3>';
     h += st.isa.map((g) => `<table class="ref-table isa"><thead><tr><th colspan="2">${g.name}</th></tr></thead><tbody>${g.rows.map(([k, v]) => `<tr><th>${k}</th><td>${esc(v)}</td></tr>`).join('')}</tbody></table>`).join('');
   }
-  if (st.steps) h += `<h3>Build order</h3><ol class="steps">${st.steps.map((s, i) => `<li>${text(`steps.${i}`, s)}</li>`).join('')}</ol>`;
+  // The build order gives the sheet away step by step, so it starts folded; once opened it
+  // stays open across EN / JA on the same stage.
+  if (st.steps) {
+    const ref = $('#spec-ref');
+    const open = ref.dataset.stage === st.id && !!ref.querySelector('details.fold[open]');
+    h += `<details class="fold"${open ? ' open' : ''}><summary>Build order / ${st.steps.length} steps</summary><ol class="steps">${st.steps.map((s, i) => `<li>${text(`steps.${i}`, s)}</li>`).join('')}</ol></details>`;
+  }
   if (st.debug) h += `<h3>Debugging</h3><ul class="debug">${st.debug.map((s, i) => `<li>${text(`debug.${i}`, s)}</li>`).join('')}</ul>`;
+  $('#spec-ref').dataset.stage = st.id;
   $('#spec-ref').innerHTML = h;
 
   // Parts on this sheet, one collapsible entry each; entries left open stay open across EN / JA.
