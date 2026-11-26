@@ -12,6 +12,13 @@
 // for drawings with many parts. `demo` is a longer program a passed CPU drawing can run for show
 // (RUN FIZZBUZZ on the stage screen); it scores nothing and never changes the save.
 // `solution` is a reference netlist at the grade A NAND count (see SOLUTIONS).
+// Reference text shown in the specification panel (js/main.js renderBrief), all optional:
+// `pins` maps a sheet pin to one line saying who drives it, when it counts and what the test
+// compares; `fields` lists the immediate formats ('I' 'S' 'B' 'U' 'J') printed under the
+// instruction field layout; `isa` is the table of instructions a CPU drawing adds, one group
+// each: { name, rows: [[key, value], ...] }, identifiers only, so it is not translated;
+// `steps` is the build order, one verifiable step per line; `debug` lists how to debug. Every
+// prose line of these has Japanese in js/i18n.ja.js (checked by tools/verify.mjs).
 // A section is { name, stages }, { name, planned: [titles] } when not issued yet, or both: issued
 // stages followed by planned rows. An optional `goal` ('GOAL 2') is shown after the section name in
 // the index.
@@ -23,11 +30,40 @@ import { FIZZBUZZ } from './fizzbuzz.js';
 // One instruction of each format, for the immediate generator's test vectors.
 const IMMW = assemble(['top', ['bne', 1, 2, 'top'], ['addi', 1, 2, -5], ['sw', 3, 4, -36], ['beq', 1, 2, 'far'], ['lui', 5, 0xabcde], ['jal', 1, 'far'], ['jal', 0, 'top'], 'far']);
 
+// What the CPU test does with each pin (startProgram in rv32.js).
+const CPU_PINS = {
+  inst: 'The word at the address on pc, from memory outside the sheet; bits 1:0 of pc are ignored. It follows pc at once, with no clock.',
+  rdata: 'The word at the address on addr, bits 1:0 ignored. Memory answers at once, on every step, load or not.',
+  reset: '1 for the first clock edge after power-on, then 0 for the whole run. On PC reset it starts the program at 80000000.',
+  clk: 'Raised once per instruction, after pc, memw, addr and wdata have been checked. PC, REGFILE and every register take their new value on that rising edge.',
+  pc: 'Address of the instruction to run. Compared with the reference before each step (PC = ..., WANT) and after its clock edge (NEXT PC = ..., WANT).',
+  addr: 'Memory address of a load or store: the ALU result. It drives rdata. Compared only on a step where memw is 1.',
+  wdata: 'The data a store writes: the second register. Compared only on a step where memw is 1.',
+  memw: '1 on a store, 0 on every other instruction. Checked on every step. An unconnected pin reads 0.',
+};
+// Instruction fields: bits, field, the part that taps it. Immediates by format, bits MSB first.
+export const FIELDS = [
+  ['6:0', 'opcode', 'OPDEC'],
+  ['11:7', 'rd', 'RD'],
+  ['14:12', 'funct3', 'FUNCT3 f2 f1 f0'],
+  ['19:15', 'rs1', 'RS1'],
+  ['24:20', 'rs2', 'RS2'],
+  ['31:25', 'funct7', 'BIT30 = bit 30'],
+];
+export const IMM_FIELDS = {
+  I: ['31:20', 'IMM-I'],
+  S: ['31:25 11:7', 'IMM-S'],
+  B: ['31 7 30:25 11:8 0', 'IMM-B'],
+  U: ['31:12 + 12 zeros', 'IMM-U'],
+  J: ['31 19:12 20 30:21 0', 'IMM-J'],
+};
+
 // Every CPU drawing has the same pins and palette. Memory is outside the sheet.
 const CPU_IO = {
   ins: ['inst', 'rdata', 'reset', 'clk'],
   outs: ['pc', 'addr', 'wdata', 'memw'],
   w: { inst: 32, rdata: 32, pc: 32, addr: 32, wdata: 32 },
+  pins: CPU_PINS,
   zoom: 2.6,
   parts: [
     'pc', 'regfile', 'alu', 'cmp', 'immgen', 'brcond', 'opdec', 'f_rd', 'f_rs1', 'f_rs2', 'f_f3', 'f_b30', 'imm_i',
@@ -40,6 +76,12 @@ const CPU8_IO = {
   ...CPU_IO,
   outs: [...CPU_IO.outs, 'wmask'],
   w: { ...CPU_IO.w, wmask: 4 },
+  pins: {
+    ...CPU_PINS,
+    addr: 'Memory address of a load or store: the ALU result, all 32 bits. LOADUNIT and STOREUNIT use bits 1:0; memory ignores them. Compared only when memw is 1.',
+    wdata: 'The data a store writes. Compared only when memw is 1, and only on the bytes wmask writes.',
+    wmask: 'The bytes a store writes, bit 0 = lowest byte. 0000 with memw at 1 writes all four. Compared when memw is 1.',
+  },
   zoom: 3,
   parts: [...CPU_IO.parts, 'loadunit', 'storeunit'],
 };
@@ -413,6 +455,11 @@ export const WORLDS = [
         silver: 608,
         gold: 320,
         reward: null,
+        debug: [
+          'Each row of the table is one test vector: the inputs, then the expected outputs. A cell drawn inverted is an output where your circuit gives something else, and NG marks its row.',
+          'Click a row to put its inputs on the sheet. Then select a part or a wire: SEL on the status bar shows its value in hex, one value per output of a part.',
+          'Point at a part in the palette, or select one on the sheet, to see what each of its terminals does. PARTS ON THIS SHEET below lists them all.',
+        ],
         hints: ["Two's complement: invert every bit, then add 1.", 'NOT32, then ADD32 with ZERO32 on the other input and 1 on the carry input.'],
       },
       {
@@ -439,6 +486,10 @@ export const WORLDS = [
         ins: ['a', 'b', 'sub'],
         outs: ['out', 'cout'],
         w: { a: 32, b: 32, out: 32 },
+        pins: {
+          sub: '0: out = a + b. 1: out = a - b, computed as a + NOT b + 1.',
+          cout: 'The carry out of bit 31 of the adder, as ADD32 gives it. When subtracting it is 1 when there is no borrow: a >= b unsigned.',
+        },
         parts: ['not32', 'xor32', 'mux32', 'add32', 'rep32', 'k0', 'k1'],
         fn: ([a, c, sub]) => {
           const t = a + (sub ? ~c >>> 0 : c) + sub;
@@ -467,6 +518,10 @@ export const WORLDS = [
         ins: ['a', 'b'],
         outs: ['eq', 'ltu', 'lt'],
         w: { a: 32, b: 32 },
+        pins: {
+          ltu: 'Unsigned: FFFFFFFF is the largest number.',
+          lt: 'Signed: bit 31 is the sign, so FFFFFFFF is -1 and 80000000 is the smallest number.',
+        },
         parts: ['addsub', 'xor32', 'any32', 'msb32', 'k0', 'k1', 'not', 'and', 'or', 'xor'],
         fn: ([a, c]) => [a === c ? 1 : 0, a < c ? 1 : 0, (a | 0) < (c | 0) ? 1 : 0],
         vec: [
@@ -492,6 +547,13 @@ export const WORLDS = [
         ins: ['a', 's4', 's3', 's2', 's1', 's0'],
         outs: ['out'],
         w: { a: 32, out: 32 },
+        pins: {
+          s4: 'Shift amount bit 4: 1 shifts by 16 more.',
+          s3: 'Bit 3: by 8 more.',
+          s2: 'Bit 2: by 4 more.',
+          s1: 'Bit 1: by 2 more.',
+          s0: 'Bit 0: by 1 more.',
+        },
         parts: ['mux32', 'shl1', 'shl2', 'shl4', 'shl8', 'shl16', 'k0', 'k1'],
         fn: ([a, s4, s3, s2, s1, s0]) => [(a << (s4 * 16 + s3 * 8 + s2 * 4 + s1 * 2 + s0)) >>> 0],
         vec: [0, 1, 2, 4, 8, 16, 31, 5].map((n) => [1, (n >> 4) & 1, (n >> 3) & 1, (n >> 2) & 1, (n >> 1) & 1, n & 1]).concat([
@@ -512,6 +574,14 @@ export const WORLDS = [
         ins: ['a', 'b', 'f2', 'f1', 'f0', 'alt'],
         outs: ['out'],
         w: { a: 32, b: 32, out: 32 },
+        pins: {
+          b: 'Second operand. The shifts use only its bits 4:0 as the amount.',
+          f2: 'funct3 bit 2, instruction bit 14. f2 f1 f0 read as a 3-bit number select the result.',
+          f1: 'funct3 bit 1, instruction bit 13.',
+          f0: 'funct3 bit 0, instruction bit 12.',
+          alt: 'Instruction bit 30. It changes only 000 (subtract) and 101 (arithmetic shift); the other six results ignore it.',
+          out: 'SLT and SLTU give 00000001 or 00000000.',
+        },
         parts: ['addsub', 'cmp', 'sll32', 'srl32', 'sra32', 'and32', 'or32', 'xor32', 'mux32', 'zext32', 'k0', 'k1'],
         fn: ([a, c, f2, f1, f0, alt]) => [aluFn(a, c, f2 * 4 + f1 * 2 + f0, alt)],
         vec: [0, 1, 2, 3, 4, 5, 6, 7].flatMap((f) =>
@@ -538,6 +608,18 @@ export const WORLDS = [
         ins: ['wd', 'we', 'd1', 'd0', 'a1', 'a0', 'b1', 'b0', 'clk'],
         outs: ['r1', 'r2'],
         w: { wd: 32, r1: 32, r2: 32 },
+        pins: {
+          wd: 'Data to write.',
+          we: 'Write enable: 1 writes on the rising clk edge. A write to x0 changes nothing.',
+          d1: 'Register to write, high bit. d1 d0 = 11 is x3.',
+          d0: 'Register to write, low bit.',
+          a1: 'Register shown on r1, high bit.',
+          a0: 'Register shown on r1, low bit.',
+          b1: 'Register shown on r2, high bit.',
+          b0: 'Register shown on r2, low bit.',
+          clk: 'The test gives each input vector twice, clk 0 then clk 1, so every vector ends with one rising edge.',
+          r1: 'Reads need no clock: r1 changes as soon as a1 a0 or the register does. X means the test does not care: that register has not been written yet.',
+        },
         parts: ['reg32', 'mux32', 'z32', 'dmux', 'and', 'not', 'k0', 'k1'],
         model: {
           init: () => ({ x: [0, null, null, null], pc: 0 }),
@@ -570,6 +652,13 @@ export const WORLDS = [
         ins: ['target', 'jump', 'reset', 'clk'],
         outs: ['pc'],
         w: { target: 32, pc: 32 },
+        pins: {
+          target: 'The address to go to when jump is 1.',
+          jump: '1: the next pc is target, not pc + 4.',
+          reset: '1: the next pc is 80000000, whatever jump says. The test starts with reset at 1.',
+          clk: 'Each vector is given with clk 0, then clk 1: one rising edge per vector.',
+          pc: 'X until the first reset edge: the test does not care what a register holds before it is set.',
+        },
         parts: ['reg32', 'add32', 'mux32', 'k4', 'kbase', 'z32', 'k0', 'k1'],
         model: {
           init: () => ({ q: null, pc: 0 }),
@@ -600,6 +689,14 @@ export const WORLDS = [
         ins: ['inst', 's', 'b', 'u', 'j'],
         outs: ['imm'],
         w: { inst: 32, imm: 32 },
+        fields: ['I', 'S', 'B', 'U', 'J'],
+        pins: {
+          inst: 'A whole instruction word. The test uses one instruction of each format; click the pin to step through them.',
+          s: '1: S format. In the CPU this is OPDEC store.',
+          b: '1: B format, OPDEC branch.',
+          u: '1: U format, LUI or AUIPC.',
+          j: '1: J format, OPDEC jal. The test sets at most one of s b u j; with none set the answer is I.',
+        },
         parts: ['imm_i', 'imm_s', 'imm_b', 'imm_u', 'imm_j', 'mux32', 'k0', 'k1'],
         fn: ([i, sel, bb, uu, j]) => [j ? immJ(i) : uu ? immU(i) : bb ? immB(i) : sel ? immS(i) : immI(i)],
         vec: [
@@ -618,6 +715,12 @@ export const WORLDS = [
         story: 'The comparator already gives eq, ltu and lt. funct3 of a branch picks one of them with f2 and f1, and f0 asks for the opposite.',
         ins: ['eq', 'ltu', 'lt', 'f2', 'f1', 'f0'],
         outs: ['taken'],
+        pins: {
+          eq: 'From CMP32: 1 when the two registers are equal.',
+          ltu: 'From CMP32: 1 when the first is below the second, unsigned.',
+          lt: 'From CMP32: 1 when the first is below the second, signed.',
+          f2: 'funct3 of the branch, instruction bits 14, 13, 12. 010 and 011 are not branches and are not tested.',
+        },
         parts: ['nand', 'not', 'and', 'or', 'xor', 'mux'],
         fn: ([eq, ltu, lt, f2, f1, f0]) => [(f2 ? (f1 ? ltu : lt) : eq) ^ f0],
         vec: [[1, 0, 0], [0, 1, 1], [0, 1, 0], [0, 0, 1], [0, 0, 0]].flatMap((c) => [0, 1, 4, 5, 6, 7].map((f) => [...c, (f >> 2) & 1, (f >> 1) & 1, f & 1])),
@@ -632,7 +735,49 @@ export const WORLDS = [
         ...CPU_IO,
         goal: 'Execute register and immediate arithmetic: ADD SUB AND OR XOR SLT SLTU SLL SRL SRA and their immediate forms.',
         story:
-          'A processor is the parts you have, wired in a loop: PC gives an address, memory returns the instruction there, its fields pick two registers, the ALU combines them, the result is written back, PC steps. The test runs a program and compares your registers and PC with a reference after every instruction. Click a step to see that instruction on the sheet. Memory is outside the sheet: inst is the word at pc.',
+          'A processor is the parts you have, wired in a loop: PC gives an address, memory returns the instruction there, its fields pick two registers, the ALU combines them, the result is written back, PC steps. The test runs a program and compares your registers and PC with a reference after every instruction. Click a step to see that instruction on the sheet. Memory is outside the sheet: inst is the word at pc. Build it in the order below and look at the trace after each step: the first NG step should move further down.',
+        fields: ['I'],
+        isa: [
+          {
+            name: 'ADD SUB SLL SLT SLTU XOR SRL SRA OR AND',
+            rows: [
+              ['OPCODE', '0110011, OPDEC op'],
+              ['FUNCT3', '000 ADD SUB, 001 SLL, 010 SLT, 011 SLTU, 100 XOR, 101 SRL SRA, 110 OR, 111 AND'],
+              ['BIT 30', '1 for SUB and SRA, else 0'],
+              ['ALU', 'a = r1, b = r2, f = funct3, alt = bit 30'],
+              ['RD GETS', 'ALU out'],
+              ['NEXT PC', 'pc + 4'],
+              ['MEMW', '0'],
+            ],
+          },
+          {
+            name: 'ADDI SLTI SLTIU XORI ORI ANDI SLLI SRLI SRAI',
+            rows: [
+              ['OPCODE', '0010011, OPDEC opimm'],
+              ['FUNCT3', 'as above; no SUBI: 000 is ADDI'],
+              ['BIT 30', 'imm bit 10; for funct3 101 it is 1 for SRAI, 0 for SRLI'],
+              ['ALU', 'a = r1, b = IMM-I, f = funct3, alt = bit 30 only for funct3 101'],
+              ['RD GETS', 'ALU out'],
+              ['NEXT PC', 'pc + 4'],
+              ['MEMW', '0'],
+            ],
+          },
+        ],
+        steps: [
+          'PC. Wire the reset pin to PC reset, clk to PC clk, PC pc to the pc pin. Leave target and jump unconnected: an unconnected input reads 0, so PC steps by 4. Check: step 0 now fails with THE SHEET NEEDS EXACTLY ONE REGFILE.',
+          'Fields and registers. Wire inst to OPDEC, RD, RS1, RS2, FUNCT3 and BIT30. Place one REGFILE: rd from RD, rs1 from RS1, rs2 from RS2, clk from the clk pin, we from a 1. Check: step 0 fails with X1 = 00000000, WANT 00000005: nothing useful is written yet.',
+          'ALU and write-back. ALU a from REGFILE r1, b from IMM-I for now (inst into IMM-I), f2 f1 f0 from FUNCT3 f2 f1 f0, ALU out to REGFILE wd. Check: steps 0 and 1 (ADDI) pass; step 2 (ADD) fails because b is still the immediate.',
+          'Register or immediate. A MUX32 in front of ALU b: a from REGFILE r2, b from IMM-I, sel from the OPDEC line that is 1 for OP-IMM only. Check: the first NG is now step 3, SUB: alt is still 0.',
+          'alt. SUB and SRA have bit 30 set, ADD and SRL clear. In OP-IMM bits 31:20 are the immediate, so bit 30 of ADDI X2, X0, -3 is 1 and must not subtract; only for funct3 101 does it choose SRAI over SRLI. Wire BIT30 straight to alt and step 1 fails. Derive alt from BIT30, OPDEC op and FUNCT3 with NOT, AND and OR. Check: all 17 steps OK.',
+          'addr, wdata and memw stay unconnected here: memw reads 0, so nothing is written to memory. They are used from 6-4.',
+        ],
+        debug: [
+          'The trace has one row per instruction the reference runs: step number, PC, the instruction, OK or NG. Under it, the first NG step and why.',
+          'PC = A, WANT B: your pc pin before the step. NEXT PC = A, WANT B: your pc after its clock edge. Xn = A, WANT B: a register after the clock edge, read from your REGFILE.',
+          'MEMORY WRITE MISSING or UNEXPECTED MEMORY WRITE: memw was 0 on a store, or 1 on something else. WROTE ... AT ..., WANT ... AT ...: wdata or addr of a store differ. CIRCUIT DOES NOT SETTLE: a loop with no register in it keeps changing.',
+          'Click a trace row, or a line of the listing, to put that instruction on the sheet: settled, not yet clocked, the registers as your circuit left them. Select a part or wire to read its value in SEL on the status bar.',
+          'Fix the first NG step first: once the state differs from the reference, later steps fail for that reason alone.',
+        ],
         prog: [
           ['addi', 1, 0, 5],
           ['addi', 2, 0, -3, '; negative constant, sign-extended'],
@@ -650,6 +795,8 @@ export const WORLDS = [
           'PC needs only reset and clk for now. RD, RS1 and RS2 go to the register file. FUNCT3 goes to the ALU.',
           'ALU input b: the second register for OP, IMM-I for OP-IMM. OPDEC tells which.',
           'alt must not follow bit 30 blindly: in ADDI it is part of the constant. alt = BIT30 AND (op OR funct3 is 101).',
+          'funct3 is 101 when f2 AND (NOT f1) AND f0: one NOT and two AND. One OR with OPDEC op and one AND with BIT30 finish alt.',
+          'Full wiring. inst to OPDEC, RD, RS1, RS2, FUNCT3, BIT30 and IMM-I. PC: reset, clk; PC pc to the pc pin. REGFILE: wd = ALU out, we = 1, rd = RD, rs1 = RS1, rs2 = RS2, clk. MUX32: a = REGFILE r2, b = IMM-I, sel = OPDEC opimm. ALU: a = REGFILE r1, b = MUX32 out, f2 f1 f0 = FUNCT3, alt = BIT30 AND (op OR (f2 AND NOT f1 AND f0)).',
         ],
       },
       {
@@ -660,6 +807,40 @@ export const WORLDS = [
         goal: 'Add LW and SW. addr and wdata go to memory, memw is 1 for a store, rdata is the word at addr.',
         story:
           'Both compute an address with the ALU: register plus immediate. So the ALU must add no matter what funct3 says, the immediate comes in S layout for a store, and a store must not write a register. Your sheet from the previous drawing is carried over.',
+        fields: ['I', 'S'],
+        isa: [
+          {
+            name: 'LW',
+            rows: [
+              ['OPCODE', '0000011, OPDEC load'],
+              ['FUNCT3', '010'],
+              ['IMMEDIATE', 'I'],
+              ['ALU', 'a = r1, b = immediate, add; out = addr'],
+              ['RD GETS', 'rdata, the word at addr'],
+              ['NEXT PC', 'pc + 4'],
+              ['MEMW', '0'],
+            ],
+          },
+          {
+            name: 'SW',
+            rows: [
+              ['OPCODE', '0100011, OPDEC store'],
+              ['FUNCT3', '010'],
+              ['IMMEDIATE', 'S: bits 11:7 are offset, not rd'],
+              ['ALU', 'a = r1, b = immediate, add; out = addr'],
+              ['RD GETS', 'nothing: we = 0'],
+              ['NEXT PC', 'pc + 4'],
+              ['MEMW', '1, wdata = r2'],
+            ],
+          },
+        ],
+        steps: [
+          'Memory pins. memw from OPDEC store, addr from ALU out, wdata from REGFILE r2. Check: step 3 (SW) now writes, but at a wrong address: the ALU still obeys funct3 010, SLT.',
+          'Make the ALU add. A load or store needs r1 + offset whatever its funct3 says. Pass FUNCT3 f2 f1 f0 to the ALU through AND gates that let them through only for OP or OP-IMM, so every other instruction gives 000: add. Keep alt at 0 the same way: alt = BIT30 AND (op OR (opimm AND funct3 is 101)), or a load with funct3 101 and a negative offset would subtract. Check: step 3 now writes at 80000123, not 80000100: ALU b is still the second register for anything but OP-IMM.',
+          'Immediate layout. Replace IMM-I by IMMGEN: inst from inst, s from OPDEC store; leave b, u and j unconnected. ALU b now takes the immediate for everything but OP: the MUX32 sel becomes NOT op. Check: the stores pass; step 4 (LW) fails, X3 gets the address instead of the word.',
+          'Load data. A MUX32 between ALU out and REGFILE wd: a = ALU out, b = the rdata pin, sel = OPDEC load. Check: step 6 (SW X3, 260(X2)) fails on X4: bits 11:7 of that store are 00100, and the register file took them for rd.',
+          'Write enable. REGFILE we must be 0 for stores, and for branches, which come next: we = NOR(store, branch). Check: all 12 steps OK.',
+        ],
         prog: [
           ['addi', 1, 0, 0x123], ['addi', 2, 0, 1],
           ['slli', 2, 2, 31, '; x2 = 80000000, start of RAM'],
@@ -671,9 +852,11 @@ export const WORLDS = [
         ],
         reward: null,
         hints: [
+          'Loads and stores both compute r1 + offset in the ALU. What must the ALU see on f2 f1 f0 to add?',
           'Gate f2 f1 f0 with (op OR opimm) so the ALU adds for everything else.',
           'IMMGEN with store on the s line. ALU b takes the immediate unless the instruction is OP.',
           'Write back rdata for a load. Register write enable = NOR(store, branch).',
+          'Full wiring, the changes to 6-3. u = OR(op, opimm). ALU f2 f1 f0 = AND(FUNCT3 f2, u), AND(f1, u), AND(f0, u). alt = BIT30 AND (op OR (opimm AND f2 AND NOT f1 AND f0)). IMMGEN: inst, s = store. ALU b MUX32: a = REGFILE r2, b = IMMGEN imm, sel = NOT op. Write-back MUX32: a = ALU out, b = rdata, sel = load; out to REGFILE wd. REGFILE we = NOR(store, branch). memw = store, addr = ALU out, wdata = REGFILE r2.',
         ],
       },
       {
@@ -683,6 +866,27 @@ export const WORLDS = [
         inherit: 'cpu2',
         goal: 'Add BEQ BNE BLT BGE BLTU BGEU. When the condition holds, PC becomes pc + immediate.',
         story: 'A branch compares two registers and changes where the program goes. This is what makes loops and decisions possible. The target is relative to the branch itself.',
+        fields: ['I', 'S', 'B'],
+        isa: [
+          {
+            name: 'BEQ BNE BLT BGE BLTU BGEU',
+            rows: [
+              ['OPCODE', '1100011, OPDEC branch'],
+              ['FUNCT3', '000 BEQ, 001 BNE, 100 BLT, 101 BGE, 110 BLTU, 111 BGEU'],
+              ['IMMEDIATE', 'B, an even byte offset'],
+              ['COMPARE', 'CMP32 a = r1, b = r2'],
+              ['ALU', 'result unused'],
+              ['RD GETS', 'nothing: we = 0'],
+              ['NEXT PC', 'taken: pc + immediate; else pc + 4'],
+              ['MEMW', '0'],
+            ],
+          },
+        ],
+        steps: [
+          'Condition. CMP32 a = REGFILE r1, b = REGFILE r2. BRCOND eq ltu lt from CMP32 eq ltu lt, and f2 f1 f0 straight from FUNCT3, not from the gated lines that feed the ALU. AND the BRCOND taken with OPDEC branch and wire that to PC jump. Check: step 4 (BNE) now jumps, to 00000000: PC target is still unconnected.',
+          'Target. Put OPDEC branch on the IMMGEN b line. ADD32: a = PC pc, b = IMMGEN imm, cin = 0; its sum to PC target. Check: all 25 steps OK.',
+          'Nothing else changes: a branch already writes no register (NOR(store, branch) from 6-4) and no memory.',
+        ],
         prog: [
           ['addi', 1, 0, 0],
           ['addi', 2, 0, 5, '; loop counter'],
@@ -702,9 +906,11 @@ export const WORLDS = [
         ],
         reward: null,
         hints: [
+          'Only the next pc changes. The PC part already has target and jump inputs.',
           'CMP32 on the two registers, BRCOND with funct3, AND with the branch line from OPDEC.',
           'ADD32(pc, immediate) is the target. Put branch on the b line of IMMGEN.',
-          'Feed target and taken to the PC part.',
+          'Feed target and taken to the PC part. BRCOND takes FUNCT3 ungated: the gated lines are 000 for a branch, and every branch would act as BEQ.',
+          'Full wiring, the changes to 6-4. CMP32: a = REGFILE r1, b = REGFILE r2. BRCOND: eq ltu lt = CMP32 eq ltu lt, f2 f1 f0 = FUNCT3. taken = AND(OPDEC branch, BRCOND taken). IMMGEN b = branch. ADD32: a = PC pc, b = IMMGEN imm, cin = 0. PC: target = ADD32 sum, jump = taken.',
         ],
       },
       {
@@ -714,6 +920,56 @@ export const WORLDS = [
         inherit: 'cpu3',
         goal: 'Add JAL, JALR, LUI and AUIPC. Jumps write pc + 4 to rd. LUI writes the immediate. AUIPC writes pc + immediate.',
         story: 'JAL and JALR are calls: they jump and leave the return address in a register. LUI and AUIPC build the upper 20 bits of a constant or an address. With these four the base integer instruction set is complete, except for byte and half-word memory access.',
+        fields: ['I', 'S', 'B', 'U', 'J'],
+        isa: [
+          {
+            name: 'JAL',
+            rows: [
+              ['OPCODE', '1101111, OPDEC jal'],
+              ['IMMEDIATE', 'J'],
+              ['RD GETS', 'pc + 4'],
+              ['NEXT PC', 'pc + immediate'],
+              ['MEMW', '0'],
+            ],
+          },
+          {
+            name: 'JALR',
+            rows: [
+              ['OPCODE', '1100111, OPDEC jalr'],
+              ['FUNCT3', '000'],
+              ['IMMEDIATE', 'I'],
+              ['ALU', 'a = r1, b = immediate, add'],
+              ['RD GETS', 'pc + 4'],
+              ['NEXT PC', 'ALU out; bit 0 is not cleared here'],
+              ['MEMW', '0'],
+            ],
+          },
+          {
+            name: 'LUI',
+            rows: [
+              ['OPCODE', '0110111, OPDEC lui'],
+              ['IMMEDIATE', 'U'],
+              ['RD GETS', 'immediate'],
+              ['NEXT PC', 'pc + 4'],
+              ['MEMW', '0'],
+            ],
+          },
+          {
+            name: 'AUIPC',
+            rows: [
+              ['OPCODE', '0010111, OPDEC auipc'],
+              ['IMMEDIATE', 'U'],
+              ['RD GETS', 'pc + immediate'],
+              ['NEXT PC', 'pc + 4'],
+              ['MEMW', '0'],
+            ],
+          },
+        ],
+        steps: [
+          'Immediates. IMMGEN u = OR(OPDEC lui, OPDEC auipc), IMMGEN j = OPDEC jal. No check of its own: the next step uses it.',
+          'Write-back. After the load MUX32, three more MUX32 in a chain, the last into REGFILE wd: pc + 4 when JAL or JALR, from a second ADD32 (a = PC pc, b = FOUR32, cin = 0); IMMGEN imm when LUI; pc + immediate when AUIPC, which is the sum of the branch-target ADD32 already on the sheet. Check: steps 0 to 2 pass; step 3 (JAL) fails on NEXT PC.',
+          'Jumps. PC jump = taken OR jal OR jalr. PC target = a MUX32: a = branch-target ADD32 sum, which is also the JAL target; b = ALU out, which is r1 + immediate for JALR; sel = OPDEC jalr. Check: all 14 steps OK. With jump right but target left as it was, step 7 (JALR) fails on NEXT PC.',
+        ],
         prog: [
           ['lui', 1, 0x12345, '; x1 = 12345000'],
           ['addi', 1, 1, 0x678, '; x1 = 12345678'],
@@ -729,9 +985,11 @@ export const WORLDS = [
         ],
         reward: null,
         hints: [
+          'pc + immediate is already on the sheet: the branch-target adder. AUIPC and JAL use it too.',
           'IMMGEN: u line for LUI or AUIPC, j line for JAL.',
           'PC jumps when a branch is taken or the instruction is JAL or JALR. JALR takes its target from the ALU.',
           'Write-back is a MUX32 chain: ALU, then rdata for load, pc + 4 for jumps, immediate for LUI, pc + immediate for AUIPC.',
+          'Full wiring, the changes to 6-5. IMMGEN: u = OR(lui, auipc), j = jal. ADD32 p4: a = PC pc, b = FOUR32, cin = 0. jmp = OR(jal, jalr). MUX32 w2: a = load MUX32 out, b = p4, sel = jmp. MUX32 w3: a = w2, b = IMMGEN imm, sel = lui. MUX32 w4: a = w3, b = branch ADD32 sum, sel = auipc; w4 to REGFILE wd. PC jump = OR(taken, jmp). PC target = MUX32: a = branch ADD32 sum, b = ALU out, sel = jalr.',
         ],
       },
     ],
@@ -758,8 +1016,16 @@ export const WORLDS = [
           ['jal', 0, 'halt', '; jump to itself: stop'],
         ],
         uart: 'HELLO\n',
+        pins: {
+          ...CPU_PINS,
+          addr: 'Memory address of a load or store: the ALU result. 10000000 is the UART: a store there prints the low byte of wdata on the serial console. Compared only when memw is 1.',
+        },
         reward: null,
-        hints: ['The sheet from CPU / JUMP AND UPPER is carried over and should pass as it is.', 'If a step fails, click it: the status bar shows the value on any selected wire.'],
+        hints: [
+          'The sheet from CPU / JUMP AND UPPER is carried over and should pass as it is.',
+          'If a step fails, click it: the status bar shows the value on any selected wire.',
+          'The console shows what your CPU sent: a step with memw at 1 and addr at 10000000 prints the low byte of wdata. LUI X5 must write 10000000 for SW to reach the UART.',
+        ],
       },
     ],
   },
@@ -779,6 +1045,13 @@ export const WORLDS = [
         ins: ['rdata', 'addr', 'f2', 'f1', 'f0'],
         outs: ['out'],
         w: { rdata: 32, addr: 32, out: 32 },
+        pins: {
+          rdata: 'The whole word memory holds at addr with bits 1:0 cleared. Byte 0, the lowest, is the byte at that aligned address.',
+          addr: 'The byte address of the load. Only bits 1 and 0 matter here.',
+          f2: 'funct3 bit 2: 1 zero-extends (LBU, LHU).',
+          f1: 'funct3 bit 1: 1 for LW.',
+          f0: 'funct3 bit 0: 1 for a half-word, 0 for a byte.',
+        },
         parts: ['low2', 'shr8', 'shr16', 'sext8', 'zext8', 'sext16', 'zext16', 'mux32', 'k0', 'k1'],
         fn: ([w, a, f2, f1, f0]) => [loadFn(w, a, f2 * 4 + f1 * 2 + f0)],
         vec: [0, 4, 1, 5, 2].flatMap((f) => LDW.flatMap((w) => LDF[f].map((o) => [w, 0x80000400 + o, (f >> 2) & 1, (f >> 1) & 1, f & 1]))),
@@ -801,6 +1074,12 @@ export const WORLDS = [
         ins: ['data', 'addr', 'f1', 'f0'],
         outs: ['wdata', 'mask'],
         w: { data: 32, addr: 32, wdata: 32, mask: 4 },
+        pins: {
+          data: 'The register value to store. SB stores its low byte, SH its low half-word.',
+          addr: 'The byte address of the store. Only bits 1 and 0 matter here.',
+          wdata: 'Every bit is compared, also in bytes the mask leaves out: shift the whole of data.',
+          mask: '4 bits, shown in hex as one digit: 1 is 0001 (byte 0), C is 1100 (bytes 3 and 2), F writes the whole word.',
+        },
         parts: ['low2', 'shl8', 'shl16', 'mux32', 'join4', 'nand', 'not', 'and', 'or', 'k0', 'k1'],
         fn: ([d, a, f1, f0]) => storeFn(d, a, f1, f0),
         vec: [0x12345678, 0xdeadbeef].flatMap((d) =>
@@ -872,10 +1151,43 @@ export const WORLDS = [
         // Once passed, RUN FIZZBUZZ runs this longer program on the sheet; it scores nothing.
         demo: FIZZBUZZ,
         reward: null,
+        fields: ['I', 'S'],
+        isa: [
+          {
+            name: 'LB LH LW LBU LHU',
+            rows: [
+              ['OPCODE', '0000011, OPDEC load'],
+              ['FUNCT3', '000 LB, 001 LH, 010 LW, 100 LBU, 101 LHU'],
+              ['IMMEDIATE', 'I'],
+              ['ALU', 'a = r1, b = immediate, add; out = addr'],
+              ['RD GETS', 'LOADUNIT out'],
+              ['NEXT PC', 'pc + 4'],
+              ['MEMW', '0'],
+            ],
+          },
+          {
+            name: 'SB SH SW',
+            rows: [
+              ['OPCODE', '0100011, OPDEC store'],
+              ['FUNCT3', '000 SB, 001 SH, 010 SW'],
+              ['IMMEDIATE', 'S'],
+              ['ALU', 'a = r1, b = immediate, add; out = addr'],
+              ['RD GETS', 'nothing: we = 0'],
+              ['NEXT PC', 'pc + 4'],
+              ['MEMW', '1; wdata and wmask from STOREUNIT'],
+            ],
+          },
+        ],
+        steps: [
+          'Loads. LOADUNIT: rdata from the rdata pin, addr from ALU out, f2 f1 f0 from FUNCT3 f2 f1 f0, ungated. Move the b input of the load MUX32 from the rdata pin to LOADUNIT out. Check: every load passes; the first byte store, step 20, fails on its mask.',
+          'Stores. STOREUNIT: data from REGFILE r2, addr from ALU out, f1 f0 from FUNCT3 f1 f0. Move the wdata pin from REGFILE r2 to STOREUNIT wdata and wire STOREUNIT mask to the wmask pin. memw stays OPDEC store. Check: all 165 steps OK and the console prints HELLO RV32I.',
+        ],
         hints: [
+          'The ALU already adds for every load and store, whatever funct3 says.',
           'LOADUNIT takes rdata, the ALU result as address, and FUNCT3. Its output replaces rdata in the write-back MUX32.',
           'STOREUNIT takes the second register, the address, and f1 f0 of FUNCT3. Its outputs drive wdata and wmask.',
-          'The ALU already adds for every load and store, whatever funct3 says.',
+          'Give LOADUNIT the FUNCT3 lines themselves, not the gated ones that feed the ALU: those are 000 for every load, and LBU would act as LB.',
+          'Full wiring, the changes to 7-1. LOADUNIT: rdata = rdata pin, addr = ALU out, f2 f1 f0 = FUNCT3. Load MUX32: a = ALU out, b = LOADUNIT out, sel = load. STOREUNIT: data = REGFILE r2, addr = ALU out, f1 f0 = FUNCT3 f1 f0. Pins: wdata = STOREUNIT wdata, wmask = STOREUNIT mask, memw = store, addr = ALU out.',
         ],
       },
     ],

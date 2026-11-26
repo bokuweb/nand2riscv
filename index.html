@@ -26,8 +26,10 @@
           <p id="goal" class="goal"></p>
           <h3>Notes</h3>
           <p id="story" class="story"></p>
+          <div id="spec-ref" class="ref"></div>
           <div id="hints"></div>
           <button id="answer">SHOW ANSWER</button>
+          <div id="parts-ref" class="ref"></div>
           <details id="howto">
             <summary>CONTROLS</summary>
             <ul>
@@ -54,7 +56,10 @@
               <button id="tool-clear">CLEAR</button>
             </div>
           </div>
-          <svg id="board" preserveAspectRatio="xMidYMid meet"></svg>
+          <div class="board-wrap">
+            <svg id="board" preserveAspectRatio="xMidYMid meet"></svg>
+            <div id="part-info" class="part-info" hidden></div>
+          </div>
           <div id="status" class="status"></div>
         </main>
         <div class="pane-handle" data-side="right" role="separator" aria-orientation="vertical" tabindex="0"></div>

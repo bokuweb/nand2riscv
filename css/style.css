@@ -370,6 +370,40 @@ summary {
   font-size: 11px;
   letter-spacing: 0.1em;
 }
+/* The sheet and the part panel drawn over its lower left corner. */
+.board-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.part-info {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  width: min(400px, calc(70% - 16px));
+  max-height: calc(70% - 16px);
+  overflow: hidden;
+  padding: 6px 8px;
+  background: var(--bg);
+  border: 1px solid var(--fg);
+  pointer-events: none;
+  font-size: 10px;
+  line-height: 1.45;
+}
+.pi-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.pi-head b {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+}
+.pi-desc {
+  margin: 2px 0 4px;
+}
 #board {
   flex: 1;
   min-height: 0;
@@ -580,6 +614,102 @@ summary {
 }
 #more-hint {
   display: block;
+}
+
+/* Reference text in the specification panel: thin-ruled tables, numbered steps, part entries. */
+.ref h3 {
+  margin: 16px 0 6px;
+}
+#spec-ref:empty {
+  display: none;
+}
+#spec-ref {
+  margin-bottom: 14px;
+}
+.ref-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  line-height: 1.45;
+  margin-bottom: 6px;
+}
+.ref-table th,
+.ref-table td {
+  text-align: left;
+  font-weight: 400;
+  vertical-align: top;
+  padding: 2px 6px 2px 0;
+  border-bottom: 1px solid var(--line);
+}
+.ref-table thead th {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--mid);
+  border-bottom: 1px solid var(--fg);
+}
+.ref-table.isa thead th {
+  color: var(--fg);
+  letter-spacing: 0.06em;
+}
+.ref-table.isa tbody th {
+  width: 1%;
+  white-space: nowrap;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--mid);
+}
+.ref-table.isa {
+  margin-bottom: 10px;
+}
+/* Direction and name columns of a pin table stay on one line; the meaning wraps. */
+.ref-table.pins td:nth-child(-n + 2),
+.ref-table.fields td:nth-child(-n + 1) {
+  width: 1%;
+  white-space: nowrap;
+}
+.ref-table.pins td:first-child {
+  color: var(--mid);
+  font-size: 9px;
+}
+.part-info .ref-table {
+  margin: 0;
+}
+.part-info .ref-table td {
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+.steps,
+.debug {
+  margin: 0;
+  padding-left: 18px;
+}
+.steps li,
+.debug li {
+  margin-bottom: 6px;
+}
+.debug {
+  list-style: square;
+}
+.ref details.pdoc {
+  margin: 0;
+  color: var(--fg);
+  border-bottom: 1px solid var(--line);
+}
+.pdoc summary {
+  font-size: 10px;
+  letter-spacing: 0;
+  line-height: 1.45;
+  padding: 3px 0;
+  color: var(--mid);
+}
+.pdoc summary b {
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--fg);
+}
+.pdoc .ref-table {
+  margin: 0 0 6px 12px;
+  width: calc(100% - 12px);
 }
 
 /* ---------- verification report ---------- */
@@ -894,6 +1024,9 @@ small [lang='ja'],
   }
   .pane-handle {
     display: none;
+  }
+  .board-wrap {
+    flex: none;
   }
   #board {
     flex: none;

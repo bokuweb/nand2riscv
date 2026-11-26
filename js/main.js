@@ -1,7 +1,8 @@
 // Screens (drawing index, drawing sheet, verification report) and progression rules.
 
 import { PARTS, truthTable, nandCount } from './sim.js';
-import { WORLDS, STAGES, PLANNED_COUNT, BADGES, partsFor } from './levels.js';
+import { WORLDS, STAGES, PLANNED_COUNT, BADGES, partsFor, FIELDS, IMM_FIELDS } from './levels.js';
+import { PART_DOCS } from './partdocs.js';
 import { state, save, resetAll, rankOf } from './store.js';
 import { sfx } from './fx.js';
 import { Editor, hex } from './editor.js';
@@ -89,7 +90,14 @@ let demo = null;
 let demoShowing = false;
 setLang(state.lang);
 const editor = new Editor($('#board'), { onChange: onCircuitChange });
-editor.onStatus = (text) => ($('#status').textContent = text);
+editor.onStatus = (text) => {
+  $('#status').textContent = text;
+  // The status line follows every selection change, and so does the part panel.
+  updatePartInfo();
+};
+// The palette chip under the pointer or keyboard focus, if any: the part panel shows it
+// in place of the selected part.
+let hoverPart = null;
 initPanes();
 
 // Own modal confirm, in place of the browser's. Resolves true on OK / Enter.
@@ -269,6 +277,7 @@ function openStage(st) {
   $('#listing').scrollTop = 0;
   session.lines = st.prog ? listing(st.prog) : null;
   session.listAt = null;
+  hoverPart = null;
   $('#palette').innerHTML = partsFor(st)
     .map((k) => `<button class="chip" data-part="${k}">${PARTS[k].label}<small>${PARTS[k].cost}</small></button>`)
     .join('');
@@ -290,7 +299,85 @@ function renderBrief() {
     });
   $('#st-lang').textContent = langLabel();
   labelPanes();
+  renderRef();
   renderHints();
+  updatePartInfo();
+}
+
+// ---------- reference text: sheet pins, instruction fields and table, build order, parts ----------
+
+const portWidth = (p, dir, i) => p[dir === 'in' ? 'iw' : 'ow']?.[i] || 1;
+const named = (name, w) => `${name}${w > 1 ? ' /' + w : ''}`;
+// A part's description and a table of its terminals, in the current language.
+function partDoc(k) {
+  const p = PARTS[k];
+  const d = PART_DOCS[k] || { desc: '', pins: {} };
+  const line = (name) => trHtml(`parts.${k}.pins.${name}`, esc(d.pins?.[name] || ''));
+  const rows = [
+    ...p.ins.map((n, i) => ['IN', n, portWidth(p, 'in', i)]),
+    ...p.outs.map((n, i) => ['OUT', n, portWidth(p, 'out', i)]),
+  ].map(([dir, n, w]) => `<tr><td>${dir}</td><td>${named(n, w)}</td><td>${line(n)}</td></tr>`);
+  return { desc: trHtml(`parts.${k}.desc`, esc(d.desc)), table: `<table class="ref-table pins"><tbody>${rows.join('')}</tbody></table>` };
+}
+
+// The specification panel's reference sections for the open stage. Table keys, field and part
+// names are chrome and stay English; every prose line has Japanese (see tools/verify.mjs).
+function renderRef() {
+  const { st } = session;
+  const text = (key, en) => trHtml(`stages.${st.id}.${key}`, esc(en));
+  const table = (cls, head, rows) =>
+    `<table class="ref-table ${cls}">${head ? `<thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead>` : ''}<tbody>${rows
+      .map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`)
+      .join('')}</tbody></table>`;
+  let h = '';
+  if (st.pins) {
+    const rows = [...st.ins.map((n) => ['IN', n]), ...st.outs.map((n) => ['OUT', n])]
+      .filter(([, n]) => st.pins[n])
+      .map(([dir, n]) => [dir, named(n, st.w?.[n] || 1), text(`pins.${n}`, st.pins[n])]);
+    h += `<h3>Sheet pins</h3>${table('pins', null, rows)}`;
+  }
+  if (st.fields) {
+    h += `<h3>Instruction fields</h3>${table('fields', ['BITS', 'FIELD', 'PART'], FIELDS)}`;
+    h += table('fields', ['IMM', 'BITS, HIGH TO LOW', 'PART'], st.fields.map((f) => [f, ...IMM_FIELDS[f]]));
+  }
+  if (st.isa) {
+    h += '<h3>Instructions added</h3>';
+    h += st.isa.map((g) => `<table class="ref-table isa"><thead><tr><th colspan="2">${g.name}</th></tr></thead><tbody>${g.rows.map(([k, v]) => `<tr><th>${k}</th><td>${esc(v)}</td></tr>`).join('')}</tbody></table>`).join('');
+  }
+  if (st.steps) h += `<h3>Build order</h3><ol class="steps">${st.steps.map((s, i) => `<li>${text(`steps.${i}`, s)}</li>`).join('')}</ol>`;
+  if (st.debug) h += `<h3>Debugging</h3><ul class="debug">${st.debug.map((s, i) => `<li>${text(`debug.${i}`, s)}</li>`).join('')}</ul>`;
+  $('#spec-ref').innerHTML = h;
+
+  // Parts on this sheet, one collapsible entry each; entries left open stay open across EN / JA.
+  const box = $('#parts-ref');
+  const open = box.dataset.stage === st.id ? new Set([...box.querySelectorAll('details[open]')].map((d) => d.dataset.part)) : new Set();
+  box.dataset.stage = st.id;
+  box.innerHTML =
+    '<h3>Parts on this sheet</h3>' +
+    partsFor(st)
+      .map((k) => {
+        const d = partDoc(k);
+        return `<details class="pdoc" data-part="${k}"${open.has(k) ? ' open' : ''}><summary><b>${PARTS[k].label}</b> ${d.desc}</summary>${d.table}</details>`;
+      })
+      .join('');
+}
+
+// The part panel over the sheet: the hovered or focused palette chip, else the selected part.
+function updatePartInfo() {
+  const box = $('#part-info');
+  const sel = session && editor.parts.find((n) => n.id === editor.sel);
+  const k = session ? hoverPart || sel?.type : null;
+  if (!k || !PARTS[k]) {
+    box.hidden = true;
+    return;
+  }
+  const key = `${k}|${state.lang}`;
+  if (box.dataset.key !== key) {
+    const d = partDoc(k);
+    box.innerHTML = `<p class="pi-head"><b>${PARTS[k].label}</b><small>NAND EQ ${PARTS[k].cost}</small></p><p class="pi-desc">${d.desc}</p>${d.table}`;
+    box.dataset.key = key;
+  }
+  box.hidden = false;
 }
 
 // EN / JA. Re-renders the prose in place: the sheet, the test state and a running
@@ -309,7 +396,7 @@ function renderHints() {
   $('#hints').innerHTML =
     st.hints
       .slice(0, hint)
-      .map((h, i) => `<p class="hint"><b>HINT ${i + 1}</b>${trHtml(`stages.${st.id}.hints.${i}`, h)}</p>`)
+      .map((h, i) => `<p class="hint"><b>HINT ${i + 1}</b>${trHtml(`stages.${st.id}.hints.${i}`, esc(h))}</p>`)
       .join('') +
     (hint < st.hints.length ? `<button id="more-hint">SHOW HINT ${hint + 1} / ${st.hints.length}</button>` : '');
   const btn = $('#more-hint');
@@ -803,6 +890,18 @@ $('#listing').addEventListener('click', (e) => {
   const wrap = $('.table-wrap');
   keepInView(wrap, $('#table tr.cur'), theadH(wrap));
 });
+
+// Palette: pointing at a chip, or focusing it, shows that part in the part panel.
+const chipPart = (el) => el?.closest?.('#palette [data-part]')?.dataset.part ?? null;
+const hoverTo = (k) => {
+  if (k === hoverPart) return;
+  hoverPart = k;
+  updatePartInfo();
+};
+$('#palette').addEventListener('pointerover', (e) => hoverTo(chipPart(e.target)));
+$('#palette').addEventListener('pointerout', (e) => hoverTo(chipPart(e.relatedTarget) ?? (document.activeElement?.closest?.('#palette') ? chipPart(document.activeElement) : null)));
+$('#palette').addEventListener('focusin', (e) => hoverTo(chipPart(e.target)));
+$('#palette').addEventListener('focusout', (e) => hoverTo(chipPart(e.relatedTarget)));
 
 // Palette: click to drop a part at a default spot, or drag it onto the sheet.
 $('#palette').addEventListener('pointerdown', (e) => {

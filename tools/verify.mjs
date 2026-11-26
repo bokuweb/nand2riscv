@@ -5,8 +5,10 @@
 //   - it passes the stage's test (and prints the expected serial output),
 //   - its NAND-equivalent count equals the stage's grade A limit,
 //   - an empty sheet fails,
-//   - it has Japanese text (js/i18n.ja.js): a goal, notes when the English has notes, and as many
-//     hints as the English (every qualification needs a Japanese description too),
+//   - it has Japanese text (js/i18n.ja.js): a goal, notes when the English has notes, as many
+//     hints, build steps and debugging lines as the English, and every pin note (every
+//     qualification needs a Japanese description too, and every part of js/partdocs.js a
+//     description and a line per terminal in both languages),
 //   - for a program stage, the previous program stage's reference CPU fails the new program
 //     (skipped when the two references are the same circuit, as for HELLO).
 // Then the demo: the FizzBuzz program assembles, the last CPU drawing's reference runs it to
@@ -18,6 +20,7 @@
 import { PARTS, truthTable, nandCount } from '../js/sim.js';
 import { STAGES, BADGES, partsFor } from '../js/levels.js';
 import { JA } from '../js/i18n.ja.js';
+import { PART_DOCS } from '../js/partdocs.js';
 import { runProgram, startProgram, assemble, refRun } from '../js/rv32.js';
 import { fizzbuzzText } from '../js/fizzbuzz.js';
 
@@ -93,8 +96,11 @@ function judge(stage, circuit) {
   return bad < 0 ? { ok: true, why: `${rows.length} ROWS` } : { ok: false, why: `ROW ${bad}` };
 }
 
-// The Japanese for a stage: goal, notes (when the English has them), the same number of hints.
+// The Japanese for a stage: goal, notes (when the English has them), the same number of hints,
+// build steps and debugging lines, and a line for every pin the English explains. The English
+// pin notes must name pins of the stage.
 const filled = (v) => typeof v === 'string' && v.trim() !== '';
+const sameList = (en, ja) => Array.isArray(ja) && ja.length === en.length && ja.every(filled);
 function jaChecks(st) {
   const j = JA.stages[st.id];
   if (!j) return ['NO JAPANESE TEXT'];
@@ -102,9 +108,39 @@ function jaChecks(st) {
   if (!filled(j.goal)) errs.push('NO JAPANESE GOAL');
   if (filled(st.story) && !filled(j.story)) errs.push('NO JAPANESE NOTES');
   const n = st.hints.length;
-  if (!Array.isArray(j.hints) || j.hints.length !== n || !j.hints.every(filled))
-    errs.push(`JAPANESE HINTS ${Array.isArray(j.hints) ? j.hints.filter(filled).length : 0}, WANT ${n}`);
+  if (!sameList(st.hints, j.hints)) errs.push(`JAPANESE HINTS ${Array.isArray(j.hints) ? j.hints.filter(filled).length : 0}, WANT ${n}`);
+  for (const key of ['steps', 'debug']) {
+    if (st[key] && !sameList(st[key], j[key])) errs.push(`JAPANESE ${key.toUpperCase()} ${j[key]?.length ?? 0}, WANT ${st[key].length}`);
+    if (!st[key] && j[key]) errs.push(`JAPANESE ${key.toUpperCase()} WITHOUT ENGLISH`);
+  }
+  for (const [pin, text] of Object.entries(st.pins || {})) {
+    if (![...st.ins, ...st.outs].includes(pin)) errs.push(`PIN NOTE FOR UNKNOWN PIN ${pin}`);
+    if (!filled(text)) errs.push(`EMPTY PIN NOTE ${pin}`);
+    if (!filled(j.pins?.[pin])) errs.push(`NO JAPANESE PIN NOTE ${pin}`);
+  }
+  for (const pin of Object.keys(j.pins || {})) if (!st.pins?.[pin]) errs.push(`JAPANESE PIN NOTE WITHOUT ENGLISH ${pin}`);
   return errs;
+}
+
+// The part reference (js/partdocs.js): every part has a description and a line per terminal,
+// in English and in Japanese, and names no terminal the part lacks.
+function partDocChecks() {
+  const errs = [];
+  for (const [k, p] of Object.entries(PARTS)) {
+    const terms = [...p.ins, ...p.outs];
+    if (new Set(terms).size !== terms.length) errs.push(`${k}: TERMINAL NAMES REPEAT`);
+    for (const [lang, d] of [['EN', PART_DOCS[k]], ['JA', JA.parts?.[k]]]) {
+      if (!d) {
+        errs.push(`${k}: NO ${lang} DOC`);
+        continue;
+      }
+      if (!filled(d.desc)) errs.push(`${k}: NO ${lang} DESCRIPTION`);
+      for (const t of terms) if (!filled(d.pins?.[t])) errs.push(`${k}.${t}: NO ${lang} LINE`);
+      for (const t of Object.keys(d.pins || {})) if (!terms.includes(t)) errs.push(`${k}.${t}: ${lang} LINE FOR NO TERMINAL`);
+    }
+  }
+  for (const k of [...Object.keys(PART_DOCS), ...Object.keys(JA.parts || {})]) if (!PARTS[k]) errs.push(`DOC FOR UNKNOWN PART ${k}`);
+  return [...new Set(errs)];
 }
 
 let failed = 0;
@@ -178,11 +214,13 @@ const demoJa = [
   .map(([k]) => k);
 const noJa = BADGES.filter((b) => !filled(JA.badges?.[b.id])).map((b) => b.id);
 const unknownJa = Object.keys(JA.stages).filter((id) => !STAGES.some((s) => s.id === id));
+const docErrs = partDocChecks();
 if (noJa.length) console.log(`FAIL QUALIFICATIONS WITHOUT A JAPANESE DESCRIPTION: ${noJa.join(' ')}`);
 if (unknownJa.length) console.log(`FAIL JAPANESE TEXT FOR UNKNOWN STAGES: ${unknownJa.join(' ')}`);
 if (demoJa.length) console.log(`FAIL NO JAPANESE FOR ${demoJa.join(', ')}`);
-const jaFail = noJa.length > 0 || unknownJa.length > 0 || demoJa.length > 0;
-if (!jaFail) console.log(`OK   JAPANESE TEXT FOR ${STAGES.length} STAGES AND ${BADGES.length} QUALIFICATIONS`);
+if (docErrs.length) console.log(`FAIL PART REFERENCE: ${docErrs.join('; ')}`);
+const jaFail = noJa.length > 0 || unknownJa.length > 0 || demoJa.length > 0 || docErrs.length > 0;
+if (!jaFail) console.log(`OK   JAPANESE TEXT FOR ${STAGES.length} STAGES, ${BADGES.length} QUALIFICATIONS AND ${Object.keys(PARTS).length} PARTS`);
 console.log(failed ? `${failed} OF ${STAGES.length} STAGES FAIL` : demoFail ? `ALL ${STAGES.length} STAGES OK, DEMO FAILS` : jaFail ? `ALL ${STAGES.length} STAGES OK, JAPANESE TEXT INCOMPLETE` : `ALL ${STAGES.length} STAGES OK`);
 console.log(`ELAPSED ${secs(t0)}`);
 process.exit(failed || jaFail || demoFail ? 1 : 0);
