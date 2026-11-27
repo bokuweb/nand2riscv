@@ -582,6 +582,14 @@ function demoTick() {
     const { pc, why } = m.step();
     if (why) {
       run.pc = pc;
+      // step() has already clocked the failing instruction, so the sheet would show
+      // the one after it. Replay to just before it, settled on it but not yet clocked,
+      // like a failed row of the test trace.
+      const uart = m.uart;
+      const r = startProgram({ words: d.info.words, outs: d.st.outs }, editor.circuit());
+      for (let k = 0; k < run.n; k++) r.step();
+      d.m = r;
+      d.m.uart = uart;
       return endDemo('fail', why);
     }
     run.n++;
