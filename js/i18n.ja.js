@@ -734,6 +734,12 @@ export const JA = {
       stopped: 'ステップ {n} で停止した。',
       locked: '先に VERIFY に合格すること: デモは合格した CPU で動く。',
     },
+    // SHEET 00 / STATUS at the top of the drawing index (js/dashboard.js).
+    dash: {
+      start: 'コンピュータの部品はすべて 1 個の NAND ゲートから作る。最初の図面から始めよう。',
+      done: 'あなたのプロセッサは 1 個の NAND ゲートから作られ、RV32I の基本命令セットを実行する。もっと長いプログラムを動かしてみよう。',
+      below: '評価 A に届いていない図面が {n} 枚ある。',
+    },
     // VERIFY stopped by STOP / ESC (stopVerify in js/main.js).
     verify: {
       stopped: 'VERIFY を中止した。採点はしていない。',

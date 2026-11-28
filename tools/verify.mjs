@@ -202,8 +202,12 @@ const demo = demoCheck();
 const demoFail = Array.isArray(demo);
 console.log(`${demoFail ? 'FAIL' : 'OK  '} DEMO  FIZZBUZZ ON ${STAGES.find((s) => s.demo)?.id ?? '-'}  ${demoFail ? demo.join('; ') : demo.notes}`);
 
-// Japanese for the demo's prose (renderDemo and renderDemoControls in js/main.js).
+// Japanese for the demo's prose (renderDemo and renderDemoControls in js/main.js) and for the
+// status plate on the drawing index (js/dashboard.js).
 const demoJa = [
+  ['ui.dash.start', JA.ui?.dash?.start],
+  ['ui.dash.done', JA.ui?.dash?.done],
+  ['ui.dash.below', JA.ui?.dash?.below],
   ['ui.demo.idle', JA.ui?.demo?.idle],
   ['ui.demo.stopped', JA.ui?.demo?.stopped],
   ['ui.demo.locked', JA.ui?.demo?.locked],

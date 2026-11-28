@@ -9,6 +9,7 @@ import { Editor, hex } from './editor.js';
 import { runProgram, startProgram, refRun, assemble, listing } from './rv32.js';
 import { setLang, trHtml, trText } from './i18n.js';
 import { initPanes, applyPanes, labelPanes } from './panes.js';
+import { dashboard } from './dashboard.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -158,7 +159,6 @@ function showMap() {
     ...STAGES.filter(cleared).flatMap(rewards),
     ...WORLDS.filter((w) => w.grant && unlocked(w.stages[0])).flatMap((w) => w.grant),
   ]);
-  const gradeCount = (g) => STAGES.filter((s) => grade(state.stages[s.id]?.stars) === g).length;
 
   const sections = WORLDS.map((w, wi) => {
     const head = `<tr class="sec"><th colspan="8">SECTION ${wi + 1} / ${w.name}${w.goal ? ` / ${w.goal}` : ''}${w.stages ? '' : ' / NOT ISSUED'}</th></tr>`;
@@ -205,11 +205,11 @@ function showMap() {
       <div class="cell grow"><h1>NAND2RISCV</h1><small>FROM ONE NAND GATE TO A RISC-V COMPUTER</small></div>
       <div class="cell"><small>OPERATOR CLASS</small><b>${pad2(rk.level)} ${rk.name}</b></div>
       <div class="cell"><small>POINTS</small><b>${state.xp}${rk.next ? ` / ${rk.next}` : ''}</b><pre>${abar(rk.pct / 100)}</pre></div>
-      <div class="cell"><small>GRADE A / B / C</small><b>${gradeCount('A')} / ${gradeCount('B')} / ${gradeCount('C')}</b></div>
       <div class="cell"><small>ISSUED</small><b>${doneCount} / ${total}</b><pre>${abar(doneCount / total)}</pre></div>
       <button id="mute">${state.muted ? 'SOUND OFF' : 'SOUND ON'}</button>
       <button id="lang" class="lang">${langLabel()}</button>
     </header>
+    ${dashboard(ownedParts)}
     <div class="map-cols">
       <section>
         <h3>Drawing index</h3>
@@ -228,7 +228,14 @@ function showMap() {
       </aside>
     </div>`;
 
-  el.querySelectorAll('[data-stage]').forEach((row) => {
+  // The plate's buttons: open a drawing, or the last one with its demo running.
+  el.querySelectorAll('.plate button[data-stage]').forEach((btn) => {
+    btn.onclick = () => {
+      openStage(STAGES.find((s) => s.id === btn.dataset.stage));
+      if (btn.dataset.demo) startDemo();
+    };
+  });
+  el.querySelectorAll('tr[data-stage]').forEach((row) => {
     const go = () => openStage(STAGES.find((s) => s.id === row.dataset.stage));
     row.addEventListener('click', go);
     row.addEventListener('keydown', (e) => e.key === 'Enter' && go());
